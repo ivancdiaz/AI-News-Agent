@@ -1,0 +1,25 @@
+# Ignore build outputs
+bin/
+obj/
+
+# macOS system files
+.DS_Store
+
+# User-specific files
+*.user
+*.suo
+
+# VS Code settings
+.vscode/
+
+# Logs
+*.log
+
+# NuGet packages
+*.nupkg
+packages/
+
+# ASP.NET Static Web Assets
+wwwroot/**/*.publish.json
+wwwroot/**/*.gz
+wwwroot/**/*.br
