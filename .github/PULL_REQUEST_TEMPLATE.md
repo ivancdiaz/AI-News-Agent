@@ -12,7 +12,7 @@ _Briefly describe the approach.
 
 ## **Changes**  
 - **Added**:  
-  - List newly added files or functionality.  f
+  - List newly added files or functionality.
 - **Updated**:  
   - List updated files or components.
 - **Removed**: 
