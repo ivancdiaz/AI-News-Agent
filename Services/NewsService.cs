@@ -2,21 +2,24 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using AI.News.Agent.Models;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AI.News.Agent.Services
 {
-    public class NewsService
+public class NewsService
+{
+    private readonly NewsApiService _apiService;
+
+    // Inject a news provider (NewsApiService)
+    public NewsService(NewsApiService apiService)
     {
-        private readonly NewsApiService _apiService;
-
-        public NewsService(string apiKey)
-        {
-            _apiService = new NewsApiService(apiKey); // Pass the API key to NewsApiService
-        }
-
-        public async Task<List<Articles>> GetNewsAsync()
-        {
-            return await _apiService.FetchTopHeadlinesAsync();
-        }
+        _apiService = apiService;
     }
+
+    // Delegate the call to the provider service
+    public async Task<List<Articles>> GetNewsAsync()
+    {
+        return await _apiService.FetchTopHeadlinesAsync();
+    }
+}
 }

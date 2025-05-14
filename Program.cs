@@ -11,13 +11,40 @@ namespace AI.News.Agent
     {
         static async Task Main(string[] args)
         {
-            // Temp: Testing URL input for article body extraction
+            // Prompt for the API key BEFORE building the DI container
+            WriteLine("Please enter your NewsAPI key:");
+            var apiKey = ReadLine();
+
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                WriteLine("[ERROR] API key is required. Exiting program.");
+                return; // Exit if no API is provided
+            }
+
             // Setup dependency injection
             var services = new ServiceCollection();
             services.AddHttpClient(); // Register IHttpClientFactory
+
+            // Register NewsApiService with captured API key
+            services.AddTransient<NewsApiService>(provider =>
+            {
+                var factory = provider.GetRequiredService<IHttpClientFactory>();
+                return new NewsApiService(factory, apiKey);
+            });
+
+            // Register NewsService which depends on NewsApiService
+            services.AddTransient<NewsService>();
+
             var serviceProvider = services.BuildServiceProvider();
 
-            // IHttpClientFactory instance
+            // Retrieve NewsApiService from DI
+            var newsService = serviceProvider.GetRequiredService<NewsApiService>();
+            var outputService = new OutputService();
+
+            // Fetch and display top headlines first
+            var articles = await newsService.FetchTopHeadlinesAsync();
+            outputService.DisplayArticles(articles);
+
             var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 
             // Create service using IHttpClientFactory
@@ -44,23 +71,6 @@ namespace AI.News.Agent
             {
                 WriteLine("[ERROR] " + result.ErrorMessage);
             }
-
-            /*
-            // Temp: Placeholder for NewsAPI integration
-            // Prompt for API key
-            WriteLine("Please enter your NewsAPI key:");
-            var apiKey = ReadLine();
-
-            if (string.IsNullOrEmpty(apiKey))
-            {
-                WriteLine("[ERROR] API key is required. Exiting program.");
-                return; // Exit if API key is not provided
-            }
-            var newsService = new NewsApiService(apiKey); // Pass the API key to the service
-            var outputService = new OutputService();
-            var articles = await newsService.FetchTopHeadlinesAsync();
-            outputService.DisplayArticles(articles);
-            */
         }
     }
 }
