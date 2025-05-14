@@ -6,20 +6,21 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace AI.News.Agent.Services
 {
-public class NewsService
-{
-    private readonly NewsApiService _apiService;
-
-    // Inject a news provider (NewsApiService)
-    public NewsService(NewsApiService apiService)
+    public class NewsService
     {
-        _apiService = apiService;
-    }
+        private readonly NewsApiService _apiService;
 
-    // Delegate the call to the provider service
-    public async Task<List<Articles>> GetNewsAsync()
-    {
-        return await _apiService.FetchTopHeadlinesAsync();
+        // Inject a news provider (NewsApiService)
+        public NewsService(NewsApiService apiService)
+        {
+            _apiService = apiService;
+        }
+
+        // Delegate the call to the provider service
+        public async Task<NewsApiResult> GetNewsAsync()
+        {
+            // Fetch news using NewsApiService, which now returns a NewsApiResult
+            return await _apiService.FetchTopHeadlinesAsync();
+        }
     }
-}
 }
