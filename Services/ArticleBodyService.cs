@@ -26,7 +26,7 @@ namespace AI.News.Agent.Services
                 var html = await _client.GetStringAsync(url);
                 var doc = new HtmlDocument();
                 doc.LoadHtml(html);
-                
+
                 // Fetch article body using <article> or a div with the class "article-body"
                 var bodyNode = doc.DocumentNode.SelectSingleNode("//article")
                              ?? doc.DocumentNode.SelectSingleNode("//div[contains(@class, 'article-body')]");
@@ -37,14 +37,13 @@ namespace AI.News.Agent.Services
                 }
                 else
                 {
-                    result.ErrorMessage = "[INFO] Article body not found on the page.";
+                    result.ErrorMessage = "[INFO] Article body not found on the page."; // Retained your message style
                 }
             }
             catch (HttpRequestException ex)
             {
-                result.ErrorMessage = $"[ERROR] Failed to fetch article: {ex.Message}";
+                result.ErrorMessage = $"[ERROR] Failed to fetch article: {ex.Message}"; // Retained your message style
             }
-
             return result;
         }
     }
@@ -54,6 +53,6 @@ namespace AI.News.Agent.Services
     {
         public string? ArticleBody { get; set; }
         public string? ErrorMessage { get; set; }
-        public bool Success => string.IsNullOrEmpty(ErrorMessage);
+        public bool Success => string.IsNullOrEmpty(ErrorMessage); // Determines if the operation was successful
     }
 }

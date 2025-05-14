@@ -42,8 +42,16 @@ namespace AI.News.Agent
             var outputService = new OutputService();
 
             // Fetch and display top headlines first
-            var articles = await newsService.FetchTopHeadlinesAsync();
-            outputService.DisplayArticles(articles);
+            var newsResult = await newsService.FetchTopHeadlinesAsync();
+            if (newsResult.Success)
+            {
+                outputService.DisplayArticles(newsResult.Articles);
+            }
+            else
+            {
+                WriteLine("[ERROR] " + newsResult.ErrorMessage); // Use error message from result
+                return;
+            }
 
             var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 
@@ -69,7 +77,7 @@ namespace AI.News.Agent
             }
             else
             {
-                WriteLine("[ERROR] " + result.ErrorMessage);
+                WriteLine(result.ErrorMessage); // Use error message from result
             }
         }
     }

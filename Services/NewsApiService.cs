@@ -22,9 +22,9 @@ namespace AI.News.Agent.Services
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey), "API key cannot be null.");
         }
 
-        public async Task<List<Articles>> FetchTopHeadlinesAsync(string country = "us", int pageSize = 5)
+        public async Task<NewsApiResult> FetchTopHeadlinesAsync(string country = "us", int pageSize = 5)
         {
-            var articles = new List<Articles>();
+            var result = new NewsApiResult();
             var url = $"{_baseUrl}?country={country}&pageSize={pageSize}";
 
             // Add the API key to the request headers
@@ -41,8 +41,10 @@ namespace AI.News.Agent.Services
                 if (!response.IsSuccessStatusCode)
                 {
                     // Handle HTTP errors gracefully
-                    WriteLine($"[ERROR] Request failed: {response.StatusCode}");
-                    return articles;
+                    var msg = $"[ERROR] Request failed: {response.StatusCode}";
+                    WriteLine(msg);
+                    result.ErrorMessage = msg;
+                    return result;
                 }
 
                 var responseBody = await response.Content.ReadAsStringAsync();
@@ -51,7 +53,7 @@ namespace AI.News.Agent.Services
                 // Parse JSON response and map to Articles model
                 foreach (var item in json["articles"]!)
                 {
-                    articles.Add(new Articles
+                    result.Articles.Add(new Articles
                     {
                         Title = item["title"]?.ToString(),
                         Author = item["author"]?.ToString(),
@@ -65,10 +67,18 @@ namespace AI.News.Agent.Services
             catch (HttpRequestException ex)
             {
                 // Handle network-related issues
-                WriteLine($"[ERROR] Failed to fetch news: {ex.Message}");
+                var msg = $"[ERROR] Failed to fetch news: {ex.Message}";
+                WriteLine(msg);
+                result.ErrorMessage = msg;
             }
-
-            return articles;
+            return result;
         }
+    }
+
+    public class NewsApiResult
+    {
+        public List<Articles> Articles { get; set; } = new();
+        public string? ErrorMessage { get; set; }
+        public bool Success => string.IsNullOrEmpty(ErrorMessage);
     }
 }
