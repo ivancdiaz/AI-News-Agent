@@ -12,50 +12,73 @@ namespace AI.News.Agent
         static async Task Main(string[] args)
         {
             // Prompt for the API key BEFORE building the DI container
-            WriteLine("Please enter your NewsAPI key:");
+            WriteLine("Please enter your NewsAPI key (or type 'skip' to test only article URL):");
             var apiKey = ReadLine();
-
-            if (string.IsNullOrEmpty(apiKey))
-            {
-                WriteLine("[ERROR] API key is required. Exiting program.");
-                return; // Exit if no API is provided
-            }
 
             // Setup dependency injection
             var services = new ServiceCollection();
             services.AddHttpClient(); // Register IHttpClientFactory
 
-            // Register NewsApiService with captured API key
-            services.AddTransient<NewsApiService>(provider =>
+            // Register NewsApiService if not skipping
+            if (!string.Equals(apiKey, "skip", StringComparison.OrdinalIgnoreCase))
             {
-                var factory = provider.GetRequiredService<IHttpClientFactory>();
-                return new NewsApiService(factory, apiKey);
-            });
+                if (string.IsNullOrEmpty(apiKey))
+                {
+                    WriteLine("[ERROR] API key is required unless you type 'skip'. Exiting program.");
+                    return;
+                }
 
-            // Register NewsService which depends on NewsApiService
-            services.AddTransient<NewsService>();
+                // Register NewsApiService with NewsAPI key
+                services.AddTransient<NewsApiService>(provider =>
+                {
+                    var factory = provider.GetRequiredService<IHttpClientFactory>();
+                    return new NewsApiService(factory, apiKey);
+                });
 
-            var serviceProvider = services.BuildServiceProvider();
-
-            // Retrieve NewsApiService from DI
-            var newsService = serviceProvider.GetRequiredService<NewsApiService>();
-            var outputService = new OutputService();
-
-            // Fetch and display top headlines first
-            var newsResult = await newsService.FetchTopHeadlinesAsync();
-            if (newsResult.Success)
-            {
-                outputService.DisplayArticles(newsResult.Articles);
+                // Register NewsService only when NewsAPI is used
+                services.AddTransient<NewsService>();
             }
-            else
+
+            // Prompt for the Hugging Face API key before asking for URL
+            WriteLine("Please enter your Hugging Face API key:");
+            var huggingFaceApiKey = ReadLine();
+
+            if (string.IsNullOrWhiteSpace(huggingFaceApiKey))
             {
-                WriteLine("[ERROR] " + newsResult.ErrorMessage); // Use error message from result
+                WriteLine("[ERROR] Hugging Face API key is required. Exiting program.");
                 return;
             }
 
-            var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
+            // Register AIAnalysisService with Hugging Face API key
+            services.AddTransient<AIAnalysisService>(provider =>
+            {
+                var factory = provider.GetRequiredService<IHttpClientFactory>();
+                return new AIAnalysisService(factory, huggingFaceApiKey);
+            });
 
-            // Create service using IHttpClientFactory
+            var serviceProvider = services.BuildServiceProvider();
+
+            if (!string.Equals(apiKey, "skip", StringComparison.OrdinalIgnoreCase))
+            {
+                // Retrieve NewsApiService from DI and fetch news
+                var newsService = serviceProvider.GetRequiredService<NewsApiService>();
+                var outputService = new OutputService();
+
+                // Fetch and display top headlines first
+                var newsResult = await newsService.FetchTopHeadlinesAsync();
+                if (newsResult.Success)
+                {
+                    outputService.DisplayArticles(newsResult.Articles);
+                }
+                else
+                {
+                    WriteLine("[ERROR] " + newsResult.ErrorMessage); // Use error message from result
+                    return;
+                }
+            }
+
+            // Always run this section regardless of API key
+            var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
             var articleBodyService = new ArticleBodyService(httpClientFactory);
 
             // Prompt for the URL
@@ -74,6 +97,17 @@ namespace AI.News.Agent
             {
                 WriteLine("Article Body: ");
                 WriteLine(result.ArticleBody);
+
+                // AIAnalysisService
+                var aiAnalysisService = serviceProvider.GetRequiredService<AIAnalysisService>();
+
+                // Log input length before summarization
+                WriteLine($"\n[INFO] Article body length: {result.ArticleBody.Length} characters");
+
+                // Summarize the article text
+                var summary = await aiAnalysisService.SummarizeArticleAsync(result.ArticleBody);
+                WriteLine("\n[AI Summary]:");
+                WriteLine(summary);
             }
             else
             {
