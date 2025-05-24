@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using System.Collections.Generic;
 using static System.Console;
+using System.Text.RegularExpressions;
 
 namespace AI.News.Agent.Services
 {
@@ -13,15 +14,20 @@ namespace AI.News.Agent.Services
         private readonly HttpClient _httpClient;
         private readonly string _huggingFaceApiKey;
         private readonly string _summarizationModelUrl = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn";
+        
+        // Constants for controlling chunking and token estimation
+        private const int MaxTokensPerChunk = 1024;
+        private const int EstimatedCharsPerToken = 4;
+        private const int FinalSummaryTokenBudget = 400;
 
-        // Hugging Face typically handles best < 1024 tokens, which is ~3000-4000 characters
-        private const int MaxInputLength = 3500;
+        // Percent of max tokens that should be used as minimum for chunk/final summaries
+        private const double ChunkSummaryMinLengthPercentage = 0.8; // Percentage used of the token budget
+        private const double FinalSummaryMinLengthPercentage = 0.8; // Percentage used of the token budget
 
-        // Accept API key via constructor
+        // Using DI to inject IHttpClientFactory and API key for HTTP setup
         public AIAnalysisService(IHttpClientFactory httpClientFactory, string huggingFaceApiKey)
         {
             _huggingFaceApiKey = huggingFaceApiKey ?? throw new ArgumentNullException(nameof(huggingFaceApiKey));
-
             _httpClient = httpClientFactory.CreateClient();
             _httpClient.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _huggingFaceApiKey);
@@ -32,48 +38,107 @@ namespace AI.News.Agent.Services
             if (string.IsNullOrWhiteSpace(articleText))
                 return "Error: article text is empty.";
 
-            // Step 1: Break long input into chunks of MaxInputLength
-            var chunks = ChunkText(articleText, MaxInputLength);
+            string cleanedArticle = CleanText(articleText);
 
+            // Estimate total tokens in the article based on character length
+            int estimatedTotalTokens = cleanedArticle.Length / EstimatedCharsPerToken;
+
+            // Determine how many chunks are needed based on max tokens per chunk
+            int chunkCount = (int)Math.Ceiling(estimatedTotalTokens / (double)MaxTokensPerChunk);
+
+            // If the article fits into one chunk, skip chunking and summarize directly
+            if (chunkCount <= 1)
+            {
+                WriteLine("[INFO] Article fits within a single chunk, skipping chunking.");
+                var finalQuickSummary = await SummarizeTextAsync(
+                    cleanedArticle,
+                    FinalSummaryTokenBudget,
+                    FinalSummaryMinLengthPercentage);
+
+                int finalQuickSummaryTokenCount = finalQuickSummary.Length / EstimatedCharsPerToken;
+                WriteLine($"[INFO] Final summary token count: ~{finalQuickSummaryTokenCount}");
+
+                return finalQuickSummary;
+            }
+
+            // Calculate size of each chunk in characters
+            int chunkSizeInChars = (int)Math.Ceiling(cleanedArticle.Length / (double)chunkCount);
+
+            // Split article into chunks
+            var chunks = ChunkText(cleanedArticle, chunkSizeInChars);
             var chunkSummaries = new List<string>();
 
+            // Distribute a budget of tokens per chunk summary
+            // Keeps total tokens of combined summaries under 1024 for the final summary
+            int tokenBudgetPerChunkSummary = (int)Math.Floor(MaxTokensPerChunk / (double)chunkCount);
             int chunkIndex = 1;
+
             foreach (var chunk in chunks)
             {
-                WriteLine($"\n[INFO] Summarizing chunk #{chunkIndex} (Length: {chunk.Length} chars):");
-                WriteLine(chunk); // Temp: Show full chunk text
+                int chunkTokenCount = chunk.Length / EstimatedCharsPerToken;
+                WriteLine($"\n[INFO] Summarizing chunk #{chunkIndex} (Length: {chunk.Length} chars, ~{chunkTokenCount} tokens)");
+                WriteLine($"[INFO] Assigned summary token budget: {tokenBudgetPerChunkSummary} tokens");
 
-                var chunkSummary = await SummarizeTextAsync(chunk);
+                var chunkSummary = await SummarizeTextAsync(
+                    chunk,
+                    tokenBudgetPerChunkSummary,
+                    ChunkSummaryMinLengthPercentage);
 
                 WriteLine($"\n[INFO] Chunk #{chunkIndex} Summary:");
-                WriteLine(chunkSummary); // Temp: Show chunk summary
+                WriteLine(chunkSummary);
 
                 chunkSummaries.Add(chunkSummary);
                 chunkIndex++;
             }
 
-            // Step 2: Summarize the summaries to get a final summary
+            // Combine chunk summaries for final summarization
             var combinedSummaries = string.Join(" ", chunkSummaries);
             WriteLine("\n[INFO] Combining chunk summaries into final summary...");
-            var finalSummary = await SummarizeTextAsync(combinedSummaries);
+
+            var finalSummary = await SummarizeTextAsync(
+                combinedSummaries,
+                FinalSummaryTokenBudget,
+                FinalSummaryMinLengthPercentage);
+
+            int finalSummaryTokenCount = finalSummary.Length / EstimatedCharsPerToken;
+            WriteLine($"[INFO] Final summary token count: ~{finalSummaryTokenCount}");
 
             return finalSummary;
         }
 
-
-        // Sends text to HuggingFace for summarization.
-        private async Task<string> SummarizeTextAsync(string text)
+        // Summarization call to the HuggingFace API
+        private async Task<string> SummarizeTextAsync(string text, int maxTokenLength, double minLengthPercentage)
         {
             try
             {
-                var payload = new { inputs = text };
+                var cleanedText = CleanText(text);
+
+                int maxLength = maxTokenLength;
+                int minLength = Math.Max(50, (int)(maxLength * minLengthPercentage));
+
+                // API request payload
+                var payload = new
+                {
+                    inputs = cleanedText,
+                    parameters = new
+                    {
+                        min_length = minLength,
+                        max_length = maxLength,
+                        length_penalty = 0.8,
+                        early_stopping = false,
+                        no_repeat_ngram_size = 3
+                    }
+                };
+
                 var json = JsonConvert.SerializeObject(payload);
                 WriteLine($"[DEBUG] Sending payload of length {json.Length} characters.");
                 WriteLine($"[DEBUG] Payload sample: {json.Substring(0, Math.Min(200, json.Length))}...");
 
+                int payloadTokenCount = json.Length / EstimatedCharsPerToken;
+                WriteLine($"[DEBUG] Estimated payload token count: {payloadTokenCount}");
+
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
                 var response = await _httpClient.PostAsync(_summarizationModelUrl, content);
-
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (!response.IsSuccessStatusCode)
@@ -82,8 +147,13 @@ namespace AI.News.Agent.Services
                     return $"[ERROR] Status: {response.StatusCode}, Body: {responseBody}";
                 }
 
-                var parsed = JsonConvert.DeserializeObject<List<SummaryResult>>(responseBody);
-                return parsed?[0]?.summary_text ?? "[ERROR] Summary not found in response.";
+                var summaryResults = JsonConvert.DeserializeObject<List<SummaryResult>>(responseBody);
+                var summary = summaryResults?[0]?.summary_text ?? "[ERROR] Summary not found in response.";
+
+                int actualSummaryTokenCount = summary.Length / EstimatedCharsPerToken;
+                WriteLine($"[INFO] Actual summary token count: ~{actualSummaryTokenCount}");
+
+                return summary;
             }
             catch (Exception ex)
             {
@@ -91,20 +161,35 @@ namespace AI.News.Agent.Services
             }
         }
 
-        // Splits the input text into chunks of specified size.
-        // Avoids Hugging Face Model token limit of 1024.
-        private List<string> ChunkText(string text, int chunkSize)
+        private List<string> ChunkText(string text, int chunkSizeInChars)
         {
             var chunks = new List<string>();
-            for (int i = 0; i < text.Length; i += chunkSize)
+            for (int i = 0; i < text.Length; i += chunkSizeInChars)
             {
-                int length = Math.Min(chunkSize, text.Length - i);
+                int length = Math.Min(chunkSizeInChars, text.Length - i);
                 chunks.Add(text.Substring(i, length));
             }
             return chunks;
         }
 
-        // Result class to deserialize HuggingFace response.
+        // Splits the input text into chunks of specified size
+        // Avoids Hugging Face Model token limit of 1024
+        private string CleanText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            var cleaned = text
+                .Replace('“', '"').Replace('”', '"')
+                .Replace('‘', '\'').Replace('’', '\'')
+                .Replace("�", "").Replace("\u00A0", " ")
+                .Replace("\u2013", "-").Replace("\u2014", "-")
+                .Replace("\u2026", "...").Replace("\t", " ")
+                .Replace("\r", "").Replace("\n", " ");
+
+            return Regex.Replace(cleaned, @"\s{2,}", " ").Trim();
+        }
+
         private class SummaryResult
         {
             public string summary_text { get; set; }
