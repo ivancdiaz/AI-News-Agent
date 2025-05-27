@@ -1,11 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
-using System.Collections.Generic;
 using static System.Console;
-using System.Text.RegularExpressions;
 
 namespace AI.News.Agent.Services
 {
@@ -14,11 +14,12 @@ namespace AI.News.Agent.Services
         private readonly HttpClient _httpClient;
         private readonly string _huggingFaceApiKey;
         private readonly string _summarizationModelUrl = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn";
-        
+
         // Constants for controlling chunking and token estimation
         private const int MaxTokensPerChunk = 1024;
         private const int EstimatedCharsPerToken = 4;
         private const int FinalSummaryTokenBudget = 400;
+        private const int MaxQuickSummaryTokenBudget = 200; // Smaller budget for short articles to prevent AI overgeneration
 
         // Percent of max tokens that should be used as minimum for chunk/final summaries
         private const double ChunkSummaryMinLengthPercentage = 0.8; // Percentage used of the token budget
@@ -43,6 +44,13 @@ namespace AI.News.Agent.Services
             // Estimate total tokens in the article based on character length
             int estimatedTotalTokens = cleanedArticle.Length / EstimatedCharsPerToken;
 
+            // Early return for very short articles
+            if (estimatedTotalTokens < 50)
+            {
+                WriteLine("[INFO] Article very short, returning cleaned text without summarization.");
+                return cleanedArticle;
+            }
+
             // Determine how many chunks are needed based on max tokens per chunk
             int chunkCount = (int)Math.Ceiling(estimatedTotalTokens / (double)MaxTokensPerChunk);
 
@@ -50,15 +58,19 @@ namespace AI.News.Agent.Services
             if (chunkCount <= 1)
             {
                 WriteLine("[INFO] Article fits within a single chunk, skipping chunking.");
-                var finalQuickSummary = await SummarizeTextAsync(
+
+                // Dynamic token budget: scale to 25% of input tokens (min 50, max 200)
+                int quickSummaryTokenBudget = Math.Min(MaxQuickSummaryTokenBudget, Math.Max(50, estimatedTotalTokens / 4));
+
+                var quickSummary = await SummarizeTextAsync(
                     cleanedArticle,
-                    FinalSummaryTokenBudget,
+                    quickSummaryTokenBudget,
                     FinalSummaryMinLengthPercentage);
 
-                int finalQuickSummaryTokenCount = finalQuickSummary.Length / EstimatedCharsPerToken;
-                WriteLine($"[INFO] Final summary token count: ~{finalQuickSummaryTokenCount}");
+                int quickSummaryTokenCount = quickSummary.Length / EstimatedCharsPerToken;
+                WriteLine($"[INFO] Final summary token count: ~{quickSummaryTokenCount}");
 
-                return finalQuickSummary;
+                return quickSummary;
             }
 
             // Calculate size of each chunk in characters
@@ -148,8 +160,12 @@ namespace AI.News.Agent.Services
                 }
 
                 var summaryResults = JsonConvert.DeserializeObject<List<SummaryResult>>(responseBody);
-                var summary = summaryResults?[0]?.summary_text ?? "[ERROR] Summary not found in response.";
+                if (summaryResults == null || summaryResults.Count == 0 || string.IsNullOrWhiteSpace(summaryResults[0]?.summary_text))
+                {
+                    return "[ERROR] Invalid summary response from API.";
+                }
 
+                var summary = summaryResults[0].summary_text;
                 int actualSummaryTokenCount = summary.Length / EstimatedCharsPerToken;
                 WriteLine($"[INFO] Actual summary token count: ~{actualSummaryTokenCount}");
 

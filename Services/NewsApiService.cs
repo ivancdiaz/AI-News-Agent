@@ -2,9 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
-using AI.News.Agent.Models;
-using Newtonsoft.Json.Linq;
 using Microsoft.Extensions.DependencyInjection;
+using Newtonsoft.Json.Linq;
+using AI.News.Agent.Config;
+using AI.News.Agent.Models;
 using static System.Console;
 
 namespace AI.News.Agent.Services
@@ -15,23 +16,26 @@ namespace AI.News.Agent.Services
         private readonly string _apiKey;
         private readonly string _baseUrl = "https://newsapi.org/v2/top-headlines";
 
-        // Constructor with Dependency Injection: HttpClient is created via IHttpClientFactory
+        // Inject HttpClient via DI and set centralized default headers once
         public NewsApiService(IHttpClientFactory httpClientFactory, string apiKey)
         {
             _client = httpClientFactory.CreateClient("MyHttpClient");
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey), "API key cannot be null.");
+
+            // Apply centralized headers
+            foreach (var header in HttpHeadersConfig.DefaultHeaders)
+            {
+                _client.DefaultRequestHeaders.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            // Apply API-specific header
+            _client.DefaultRequestHeaders.TryAddWithoutValidation("x-api-key", _apiKey);
         }
 
         public async Task<NewsApiResult> FetchTopHeadlinesAsync(string country = "us", int pageSize = 5)
         {
             var result = new NewsApiResult();
             var url = $"{_baseUrl}?country={country}&pageSize={pageSize}";
-
-            // Add the API key to the request headers
-            _client.DefaultRequestHeaders.Add("x-api-key", _apiKey);
-
-            // Set User-Agent for server compatibility and logging
-            _client.DefaultRequestHeaders.UserAgent.ParseAdd("AI.News.Agent/1.0");
 
             try
             {
