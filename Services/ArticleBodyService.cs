@@ -1,10 +1,11 @@
 using System;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using HtmlAgilityPack;
-using System.Text.RegularExpressions;
-using System.Net;
+using AI.News.Agent.Config;
 
 namespace AI.News.Agent.Services
 {
@@ -12,10 +13,19 @@ namespace AI.News.Agent.Services
     {
         private readonly HttpClient _client;
 
-        // Inject IHttpClientFactory
+        // Inject HttpClient via DI and set centralized default headers once
         public ArticleBodyService(IHttpClientFactory httpClientFactory)
         {
             _client = httpClientFactory.CreateClient("MyHttpClient");
+
+            // Centralized User-Agent and headers
+            foreach (var header in HttpHeadersConfig.DefaultHeaders)
+            {
+                if (!_client.DefaultRequestHeaders.Contains(header.Key))
+                {
+                    _client.DefaultRequestHeaders.Add(header.Key, header.Value);
+                }
+            }
         }
 
         public async Task<ArticleBodyResult> GetArticleBodyAsync(string url)
@@ -75,7 +85,8 @@ namespace AI.News.Agent.Services
                     "//div[contains(@class, 'entry-content') or contains(@id, 'entry-content')]",
                     "//div[contains(@class, 'post-content') or contains(@id, 'post-content')]",
                     "//section[contains(@class, 'article') or contains(@id, 'article')]",
-                    "//div[contains(@class, 'article') or contains(@id, 'article')]"
+                    "//div[contains(@class, 'article') or contains(@id, 'article')]",
+                    "//div[contains(translate(@class, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'article')]"
                 };
 
                 foreach (var xpath in articleBodyXPaths)
