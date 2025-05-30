@@ -9,7 +9,7 @@ using static System.Console;
 
 namespace AI.News.Agent.Services
 {
-    public class AIAnalysisService
+    public class AIAnalysisService : IAIAnalysisService
     {
         private readonly HttpClient _httpClient;
         private readonly string _huggingFaceApiKey;

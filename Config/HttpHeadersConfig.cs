@@ -6,9 +6,19 @@ namespace AI.News.Agent.Config
                                         "AppleWebKit/537.36 (KHTML, like Gecko) " +
                                         "Chrome/125.0.0.0 Safari/537.36";
 
-        public static readonly Dictionary<string, string> DefaultHeaders = new()
+        // Exclusive to HttpClient
+        public static readonly Dictionary<string, string> HttpClientHeaders = new()
         {
             { "User-Agent", UserAgent },
+            { "Accept-Language", "en-US,en;q=0.9" },
+            { "Referer", "https://www.google.com/" },
+            { "Upgrade-Insecure-Requests", "1" },
+            { "DNT", "1" }
+        };
+
+        // Exclusive to Playwright
+        public static readonly Dictionary<string, string> PlaywrightHeaders = new()
+        {
             { "Accept-Language", "en-US,en;q=0.9" },
             { "Referer", "https://www.google.com/" },
             { "Upgrade-Insecure-Requests", "1" },

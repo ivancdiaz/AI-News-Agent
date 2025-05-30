@@ -1,8 +1,8 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http;
 using System.Threading.Tasks;
 using AI.News.Agent.Services;
 using AI.News.Agent.Output;
-using System.Net.Http;
 using static System.Console;
 
 namespace AI.News.Agent
@@ -17,7 +17,11 @@ namespace AI.News.Agent
 
             // Setup dependency injection
             var services = new ServiceCollection();
+
             services.AddHttpClient(); // Register IHttpClientFactory
+
+            // Register PlaywrightRenderService as a singleton
+            services.AddSingleton<IPlaywrightRenderService, PlaywrightRenderService>();
 
             // Register NewsApiService if not skipping
             if (!string.Equals(apiKey, "skip", StringComparison.OrdinalIgnoreCase))
@@ -50,13 +54,17 @@ namespace AI.News.Agent
             }
 
             // Register AIAnalysisService with Hugging Face API key
-            services.AddTransient<AIAnalysisService>(provider =>
+            services.AddTransient<IAIAnalysisService>(provider =>
             {
                 var factory = provider.GetRequiredService<IHttpClientFactory>();
                 return new AIAnalysisService(factory, huggingFaceApiKey);
             });
 
-            var serviceProvider = services.BuildServiceProvider();
+            // Register ArticleBodyService with its dependencies (HttpClientFactory + PlaywrightRenderService)
+            services.AddTransient<ArticleBodyService>();
+
+            // Build service and ensure DisposeAsync() is called for PlaywrightRenderService
+            await using var serviceProvider = services.BuildServiceProvider();
 
             if (!string.Equals(apiKey, "skip", StringComparison.OrdinalIgnoreCase))
             {
@@ -78,8 +86,9 @@ namespace AI.News.Agent
             }
 
             // Always run this section regardless of API key
-            var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
-            var articleBodyService = new ArticleBodyService(httpClientFactory);
+
+            // Get ArticleBodyService with dependencies
+            var articleBodyService = serviceProvider.GetRequiredService<ArticleBodyService>();
 
             // Prompt for the URL
             WriteLine("Please enter the URL of the article:");
@@ -99,7 +108,7 @@ namespace AI.News.Agent
                 WriteLine(result.ArticleBody);
 
                 // AIAnalysisService
-                var aiAnalysisService = serviceProvider.GetRequiredService<AIAnalysisService>();
+                var aiAnalysisService = serviceProvider.GetRequiredService<IAIAnalysisService>();
 
                 // Log input length before summarization
                 WriteLine($"\n[INFO] Article body length: {result.ArticleBody.Length} characters");
