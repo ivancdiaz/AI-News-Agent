@@ -6,20 +6,24 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using HtmlAgilityPack;
 using AI.News.Agent.Config;
+using static System.Console;
 
 namespace AI.News.Agent.Services
 {
     public class ArticleBodyService
     {
         private readonly HttpClient _client;
+        private readonly IPlaywrightRenderService _playwrightService;
 
-        // Inject HttpClient via DI and set centralized default headers once
-        public ArticleBodyService(IHttpClientFactory httpClientFactory)
+        // Inject HttpClient and Playwright render service
+        // Apply centralized default headers to the HttpClient instance
+        public ArticleBodyService(IHttpClientFactory httpClientFactory, IPlaywrightRenderService playwrightService)
         {
-            _client = httpClientFactory.CreateClient("MyHttpClient");
+            _client = httpClientFactory.CreateClient("MyHttpClient"); // Inject HttpClient
+            _playwrightService = playwrightService; // Inject playwright
 
             // Centralized User-Agent and headers
-            foreach (var header in HttpHeadersConfig.DefaultHeaders)
+            foreach (var header in HttpHeadersConfig.HttpClientHeaders)
             {
                 if (!_client.DefaultRequestHeaders.Contains(header.Key))
                 {
@@ -30,40 +34,73 @@ namespace AI.News.Agent.Services
 
         public async Task<ArticleBodyResult> GetArticleBodyAsync(string url)
         {
-            var result = new ArticleBodyResult();
-
+            string? html = null;
+            
+            // Attempt to fetch the raw HTML using HttpClient
             try
             {
-                var html = await _client.GetStringAsync(url);
-                var doc = new HtmlDocument();
-                doc.LoadHtml(html);
+                html = await _client.GetStringAsync(url);
 
-                // Fetch article body using <article> or a div with the class "article-body"
-                var bodyNode = GetMainContentNode(doc);
+                // Try parsing raw HTML
+                var result = TryParseHtml(html);
+                if (result.Success)
+                {
+                    WriteLine("[INFO] Successfully parsed article using HtmlAgilityPack (HTML fetched via HttpClient).");
+                    return result;
+                }
 
-                if (bodyNode != null)
-                {
-                    // Extract meaningful content using <p> tags to reduce noise
-                    var paragraphs = bodyNode.SelectNodes(".//p");
-                    if (paragraphs != null && paragraphs.Count > 0)
-                    {
-                        var articleText = string.Join("\n\n", paragraphs.Select(p => p.InnerText.Trim()));
-                        result.ArticleBody = CleanText(articleText);
-                    }
-                    else
-                    {
-                        result.ErrorMessage = "[INFO] No paragraph content found inside article body.";
-                    }
-                }
-                else
-                {
-                    result.ErrorMessage = "[INFO] Article body not found on the page.";
-                }
+                WriteLine("[WARN] HttpClient fetch succeeded, but parsing returned no usable content.");
             }
             catch (HttpRequestException ex)
             {
-                result.ErrorMessage = $"[ERROR] Failed to fetch article: {ex.Message}";
+                WriteLine($"[WARN] HttpClient failed: {ex.Message}");
             }
+            
+            // Fallback: use Playwright to render the page and capture HTML if HttpClient fails or content was unusable
+            html = await _playwrightService.RenderPageHtmlAsync(url);
+            if (html == null)
+            {
+                return new ArticleBodyResult
+                {
+                    ErrorMessage = "[ERROR] Both HttpClient and Playwright failed to fetch usable article HTML."
+                };
+            }
+
+            // Try parsing the fallback HTML
+            var fallbackResult = TryParseHtml(html);
+            if (fallbackResult.Success)
+            {
+                WriteLine("[INFO] Successfully parsed article using HtmlAgilityPack (HTML fetched via Playwright).");
+                return fallbackResult;
+            }
+
+            // Parsing failed for both HttpClient and Playwright
+            return new ArticleBodyResult
+            {
+                ErrorMessage = "[ERROR] Playwright fetch succeeded, but parsing returned no usable content."
+            };
+        }
+
+        // Combined parsing logic
+        private ArticleBodyResult TryParseHtml(string html)
+        {
+            var result = new ArticleBodyResult();
+            var doc = new HtmlDocument();
+            doc.LoadHtml(html);
+
+            var bodyNode = GetMainContentNode(doc);
+
+            if (bodyNode != null)
+            {
+                var paragraphs = bodyNode.SelectNodes(".//p");
+                if (paragraphs != null && paragraphs.Count > 0)
+                {
+                    var articleText = string.Join("\n\n", paragraphs.Select(p => p.InnerText.Trim()));
+                    result.ArticleBody = CleanText(articleText);
+                    return result;
+                }
+            }
+            result.ErrorMessage = "[INFO] Article body not found or had no meaningful paragraph content.";
             return result;
         }
 
@@ -96,6 +133,24 @@ namespace AI.News.Agent.Services
                     {
                         bodyNode = candidateNode;
                         break;
+                    }
+                }
+            }
+
+            // Final fallback: Find the <div> with the most paragraph text.
+            if (bodyNode == null)
+            {
+                var divs = doc.DocumentNode.SelectNodes("//div[count(.//p) >= 2]");
+                if (divs != null)
+                {
+                    bodyNode = divs
+                        .OrderByDescending(div =>
+                            div.SelectNodes(".//p")?.Sum(p => p.InnerText.Length) ?? 0)
+                        .FirstOrDefault();
+
+                    if (bodyNode != null)
+                    {
+                        Console.WriteLine("[INFO] Fallback: Found div with most paragraph content.");
                     }
                 }
             }

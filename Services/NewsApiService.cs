@@ -23,7 +23,7 @@ namespace AI.News.Agent.Services
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey), "API key cannot be null.");
 
             // Apply centralized headers
-            foreach (var header in HttpHeadersConfig.DefaultHeaders)
+            foreach (var header in HttpHeadersConfig.HttpClientHeaders)
             {
                 _client.DefaultRequestHeaders.TryAddWithoutValidation(header.Key, header.Value);
             }
