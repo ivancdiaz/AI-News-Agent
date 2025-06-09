@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using AI.News.Agent.Config;
 using AI.News.Agent.Models;
-using static System.Console;
 
 namespace AI.News.Agent.Services
 {
@@ -15,12 +15,18 @@ namespace AI.News.Agent.Services
         private readonly HttpClient _client;
         private readonly string _apiKey;
         private readonly string _baseUrl = "https://newsapi.org/v2/top-headlines";
+        private readonly ILogger<NewsApiService> _logger; // 🟢
 
-        // Inject HttpClient via DI and set centralized default headers once
-        public NewsApiService(IHttpClientFactory httpClientFactory, string apiKey)
+
+        // Inject HttpClient and ILogger via DI, apply headers 🟢
+        public NewsApiService(
+            IHttpClientFactory httpClientFactory,
+            string apiKey,
+            ILogger<NewsApiService> logger)
         {
             _client = httpClientFactory.CreateClient("MyHttpClient");
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey), "API key cannot be null.");
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger)); // 🟢
 
             // Apply centralized headers
             foreach (var header in HttpHeadersConfig.HttpClientHeaders)
@@ -37,21 +43,27 @@ namespace AI.News.Agent.Services
             var result = new NewsApiResult();
             var url = $"{_baseUrl}?country={country}&pageSize={pageSize}";
 
+            _logger.LogInformation(
+                "Fetching top headlines from {Url}",
+                url); // 🟢
+
             try
             {
-                WriteLine($"[INFO] Fetching news from {url}");
                 var response = await _client.GetAsync(url);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    // Handle HTTP errors gracefully
-                    var msg = $"[ERROR] Request failed: {response.StatusCode}";
-                    WriteLine(msg);
-                    result.ErrorMessage = msg;
+                     _logger.LogWarning(
+                        "Request failed with status code {StatusCode} when accessing {Url}",
+                        response.StatusCode,
+                        url); // 🟢
+                    result.ErrorMessage = $"Request failed: {response.StatusCode}";
                     return result;
                 }
 
                 var responseBody = await response.Content.ReadAsStringAsync();
+                _logger.LogDebug("Successfully fetched news JSON (Length: {Length} chars)", responseBody.Length); // 🟢
+
                 var json = JObject.Parse(responseBody);
 
                 // Parse JSON response and map to Articles model
@@ -71,9 +83,13 @@ namespace AI.News.Agent.Services
             catch (HttpRequestException ex)
             {
                 // Handle network-related issues
-                var msg = $"[ERROR] Failed to fetch news: {ex.Message}";
-                WriteLine(msg);
-                result.ErrorMessage = msg;
+                _logger.LogError(ex, "Failed to fetch news from {Url}", url); // 🟢
+                result.ErrorMessage = $"Failed to fetch news: {ex.Message}";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error occurred while fetching news from {Url}", url); // 🟢
+                result.ErrorMessage = $"Unexpected error: {ex.Message}";
             }
             return result;
         }

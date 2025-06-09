@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
-using static System.Console;
+using Microsoft.Extensions.Logging;
 
 namespace AI.News.Agent.Services
 {
@@ -13,12 +13,13 @@ namespace AI.News.Agent.Services
     {
         private readonly HttpClient _httpClient;
         private readonly string _huggingFaceApiKey;
+        private readonly ILogger<AIAnalysisService> _logger; // 🟢 Injected logger
         private readonly string _summarizationModelUrl = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn";
 
         // Constants for controlling chunking and token estimation
-        private const int MaxTokensPerChunk = 1024;
-        private const int EstimatedCharsPerToken = 4;
-        private const int FinalSummaryTokenBudget = 400;
+        private const int MaxTokensPerChunk = 900; // Set to 900 to stay 10–15% below HF limit due to token size estimation variance
+        private const int EstimatedCharsPerToken = 4; // Manual estimate; future fix: add tokenizer for more precise token counts
+        private const int FinalSummaryTokenBudget = 300;
         private const int MaxQuickSummaryTokenBudget = 200; // Smaller budget for short articles to prevent AI overgeneration
 
         // Percent of max tokens that should be used as minimum for chunk/final summaries
@@ -26,9 +27,13 @@ namespace AI.News.Agent.Services
         private const double FinalSummaryMinLengthPercentage = 0.8; // Percentage used of the token budget
 
         // Using DI to inject IHttpClientFactory and API key for HTTP setup
-        public AIAnalysisService(IHttpClientFactory httpClientFactory, string huggingFaceApiKey)
+        public AIAnalysisService(
+            IHttpClientFactory httpClientFactory,
+            string huggingFaceApiKey,
+            ILogger<AIAnalysisService> logger) // 🟢 Added logger to parameters
         {
             _huggingFaceApiKey = huggingFaceApiKey ?? throw new ArgumentNullException(nameof(huggingFaceApiKey));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger)); // 🟢 Null check for logger
             _httpClient = httpClientFactory.CreateClient();
             _httpClient.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _huggingFaceApiKey);
@@ -47,7 +52,7 @@ namespace AI.News.Agent.Services
             // Early return for very short articles
             if (estimatedTotalTokens < 50)
             {
-                WriteLine("[INFO] Article very short, returning cleaned text without summarization.");
+                _logger.LogInformation("Article very short, returning cleaned text without summarization."); // 🟢
                 return cleanedArticle;
             }
 
@@ -57,7 +62,7 @@ namespace AI.News.Agent.Services
             // If the article fits into one chunk, skip chunking and summarize directly
             if (chunkCount <= 1)
             {
-                WriteLine("[INFO] Article fits within a single chunk, skipping chunking.");
+                _logger.LogInformation("Article fits within a single chunk, skipping chunking."); // 🟢
 
                 // Dynamic token budget: scale to 25% of input tokens (min 50, max 200)
                 int quickSummaryTokenBudget = Math.Min(MaxQuickSummaryTokenBudget, Math.Max(50, estimatedTotalTokens / 4));
@@ -68,7 +73,9 @@ namespace AI.News.Agent.Services
                     FinalSummaryMinLengthPercentage);
 
                 int quickSummaryTokenCount = quickSummary.Length / EstimatedCharsPerToken;
-                WriteLine($"[INFO] Final summary token count: ~{quickSummaryTokenCount}");
+                _logger.LogInformation(
+                    "Final summary token count: ~{QuickSummaryTokenCount}",
+                    quickSummaryTokenCount); // 🟢
 
                 return quickSummary;
             }
@@ -88,16 +95,24 @@ namespace AI.News.Agent.Services
             foreach (var chunk in chunks)
             {
                 int chunkTokenCount = chunk.Length / EstimatedCharsPerToken;
-                WriteLine($"\n[INFO] Summarizing chunk #{chunkIndex} (Length: {chunk.Length} chars, ~{chunkTokenCount} tokens)");
-                WriteLine($"[INFO] Assigned summary token budget: {tokenBudgetPerChunkSummary} tokens");
+                _logger.LogInformation(
+                    "Summarizing chunk #{ChunkIndex} (Length: {ChunkLength} chars, ~{ChunkTokenCount} tokens)",
+                    chunkIndex,
+                    chunk.Length,
+                    chunkTokenCount); // 🟢
+                _logger.LogInformation(
+                    "Assigned summary token budget: {TokenBudgetPerChunkSummary} tokens",
+                    tokenBudgetPerChunkSummary); // 🟢
 
                 var chunkSummary = await SummarizeTextAsync(
                     chunk,
                     tokenBudgetPerChunkSummary,
                     ChunkSummaryMinLengthPercentage);
 
-                WriteLine($"\n[INFO] Chunk #{chunkIndex} Summary:");
-                WriteLine(chunkSummary);
+                _logger.LogInformation(
+                    "\nChunk #{ChunkIndex} Summary:\n{ChunkSummary}",
+                    chunkIndex,
+                    chunkSummary); // 🟢
 
                 chunkSummaries.Add(chunkSummary);
                 chunkIndex++;
@@ -105,7 +120,7 @@ namespace AI.News.Agent.Services
 
             // Combine chunk summaries for final summarization
             var combinedSummaries = string.Join(" ", chunkSummaries);
-            WriteLine("\n[INFO] Combining chunk summaries into final summary...");
+            _logger.LogInformation("Combining chunk summaries into final summary..."); // 🟢
 
             var finalSummary = await SummarizeTextAsync(
                 combinedSummaries,
@@ -113,7 +128,9 @@ namespace AI.News.Agent.Services
                 FinalSummaryMinLengthPercentage);
 
             int finalSummaryTokenCount = finalSummary.Length / EstimatedCharsPerToken;
-            WriteLine($"[INFO] Final summary token count: ~{finalSummaryTokenCount}");
+            _logger.LogInformation(
+                "Final summary token count: ~{FinalSummaryTokenCount}",
+                finalSummaryTokenCount); // 🟢
 
             return finalSummary;
         }
@@ -121,60 +138,85 @@ namespace AI.News.Agent.Services
         // Summarization call to the HuggingFace API
         private async Task<string> SummarizeTextAsync(string text, int maxTokenLength, double minLengthPercentage)
         {
-            try
+            var cleanedText = CleanText(text);
+            int maxLength = maxTokenLength;
+            int minLength = Math.Max(50, (int)(maxLength * minLengthPercentage));
+
+            // API request payload
+            var payload = new
             {
-                var cleanedText = CleanText(text);
-
-                int maxLength = maxTokenLength;
-                int minLength = Math.Max(50, (int)(maxLength * minLengthPercentage));
-
-                // API request payload
-                var payload = new
+                inputs = cleanedText,
+                parameters = new
                 {
-                    inputs = cleanedText,
-                    parameters = new
+                    min_length = minLength,
+                    max_length = maxLength,
+                    length_penalty = 0.8,
+                    early_stopping = false,
+                    no_repeat_ngram_size = 3
+                }
+            };
+
+            var json = JsonConvert.SerializeObject(payload);
+            _logger.LogDebug(
+                "Sending payload of length {JsonLength} characters.",
+                json.Length); // 🟢
+
+            int payloadTokenCount = json.Length / EstimatedCharsPerToken;
+            _logger.LogDebug(
+                "Estimated payload token count: {PayloadTokenCount}",
+                payloadTokenCount); // 🟢
+
+            for (int attempt = 1; attempt <= 2; attempt++) // 🔴 retry logic (1 retry max)
+            {
+                try
+                {
+                    var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                    _logger.LogInformation("Waiting for summarization response (attempt {Attempt}, timeout: {TimeoutSeconds}s)...",
+                        attempt, _httpClient.Timeout.TotalSeconds); // 🔴
+
+                    var response = await _httpClient.PostAsync(_summarizationModelUrl, content);
+                    var responseBody = await response.Content.ReadAsStringAsync();
+
+                    if (!response.IsSuccessStatusCode)
                     {
-                        min_length = minLength,
-                        max_length = maxLength,
-                        length_penalty = 0.8,
-                        early_stopping = false,
-                        no_repeat_ngram_size = 3
+                        _logger.LogError(
+                            "Response Body (non-success): {ResponseBody}",
+                            responseBody); // 🟢
+                        return $"Status: {response.StatusCode}, Body: {responseBody}";
                     }
-                };
 
-                var json = JsonConvert.SerializeObject(payload);
-                WriteLine($"[DEBUG] Sending payload of length {json.Length} characters.");
-                WriteLine($"[DEBUG] Payload sample: {json.Substring(0, Math.Min(200, json.Length))}...");
+                    var summaryResults = JsonConvert.DeserializeObject<List<SummaryResult>>(responseBody);
+                    if (summaryResults == null || summaryResults.Count == 0 || string.IsNullOrWhiteSpace(summaryResults[0]?.summary_text))
+                    {
+                        return "Invalid summary response from API."; // 🟢
+                    }
 
-                int payloadTokenCount = json.Length / EstimatedCharsPerToken;
-                WriteLine($"[DEBUG] Estimated payload token count: {payloadTokenCount}");
+                    var summary = summaryResults[0].summary_text;
+                    int actualSummaryTokenCount = summary.Length / EstimatedCharsPerToken;
+                    _logger.LogInformation(
+                        "Actual summary token count: ~{ActualSummaryTokenCount}",
+                        actualSummaryTokenCount); // 🟢
 
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var response = await _httpClient.PostAsync(_summarizationModelUrl, content);
-                var responseBody = await response.Content.ReadAsStringAsync();
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    WriteLine($"[ERROR] Response Body: {responseBody}");
-                    return $"[ERROR] Status: {response.StatusCode}, Body: {responseBody}";
+                    return summary;
                 }
-
-                var summaryResults = JsonConvert.DeserializeObject<List<SummaryResult>>(responseBody);
-                if (summaryResults == null || summaryResults.Count == 0 || string.IsNullOrWhiteSpace(summaryResults[0]?.summary_text))
+                catch (TaskCanceledException ex) when (!ex.CancellationToken.IsCancellationRequested) // 🔴
                 {
-                    return "[ERROR] Invalid summary response from API.";
+                    _logger.LogWarning(ex, "Summarization request timed out (attempt {Attempt}).", attempt); // 🔴
+
+                    if (attempt == 2)
+                        return "Summarization failed due to a timeout."; // 🔴
+
+                    await Task.Delay(1000); // 🔴 basic 1-second backoff before retry
                 }
-
-                var summary = summaryResults[0].summary_text;
-                int actualSummaryTokenCount = summary.Length / EstimatedCharsPerToken;
-                WriteLine($"[INFO] Actual summary token count: ~{actualSummaryTokenCount}");
-
-                return summary;
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "An error occurred during summarization."); // 🟢
+                    return $"Summarization failed: {ex.Message}"; // 🔴 cleaned return message
+                }
             }
-            catch (Exception ex)
-            {
-                return $"[EXCEPTION] {ex.GetType().Name}: {ex.Message}";
-            }
+
+            return "Unknown summarization failure."; // 🔴 fallback in case of unexpected exit
         }
 
         private List<string> ChunkText(string text, int chunkSizeInChars)
