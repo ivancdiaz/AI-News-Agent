@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 using AI.News.Agent.Config;
+using AI.News.Agent.Models;
 
 namespace AI.News.Agent.Services
 {
@@ -14,18 +15,18 @@ namespace AI.News.Agent.Services
     {
         private readonly HttpClient _client;
         private readonly IPlaywrightRenderService _playwrightService;
-        private readonly ILogger<ArticleBodyService> _logger; // 🟢
+        private readonly ILogger<ArticleBodyService> _logger;
 
         // Inject HttpClient and Playwright render service
         // Apply centralized default headers to the HttpClient instance
         public ArticleBodyService(
             IHttpClientFactory httpClientFactory,
             IPlaywrightRenderService playwrightService,
-            ILogger<ArticleBodyService> logger) // 🟢
+            ILogger<ArticleBodyService> logger)
         {
             _client = httpClientFactory.CreateClient("MyHttpClient"); // Inject HttpClient
             _playwrightService = playwrightService; // Inject playwright
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger)); // 🟢
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             // Centralized User-Agent and headers
             foreach (var header in HttpHeadersConfig.HttpClientHeaders)
@@ -37,12 +38,12 @@ namespace AI.News.Agent.Services
             }
         }
 
-        public async Task<ArticleBodyResult> GetArticleBodyAsync(string url)
+        public async Task<Result<ArticleBody>> GetArticleBodyAsync(string url)
         {
             string? html = null;
             _logger.LogInformation(
                 "Fetching article HTML from: {Url}",
-                url); // 🟢
+                url);
 
             // Attempt to fetch the raw HTML using HttpClient
             try
@@ -50,59 +51,56 @@ namespace AI.News.Agent.Services
                 html = await _client.GetStringAsync(url);
                 _logger.LogDebug(
                     "Successfully fetched raw HTML via HttpClient (Length: {HtmlLength})",
-                    html.Length); // 🟢
+                    html.Length);
 
                 // Try parsing raw HTML
-                var result = TryParseHtml(html);
-                if (result.Success)
+                var tryParseResult = TryParseHtml(html);
+                if (tryParseResult.Success)
                 {
-                    _logger.LogInformation("Parsed article using HtmlAgilityPack from raw HTML."); // 🟢
-                    return result;
+                    _logger.LogInformation("Parsed article using HtmlAgilityPack from raw HTML.");
+                    return tryParseResult;
                 }
-                _logger.LogWarning("HttpClient fetch succeeded, but parsing returned no usable content."); // 🟢
+                _logger.LogWarning("HttpClient fetch succeeded, but parsing returned no usable content.");
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogWarning(ex, "HttpClient request failed."); // 🟢
+                _logger.LogWarning(ex, "HttpClient request failed.");
             }
 
             // Fallback: use Playwright to render the page and capture HTML if HttpClient fails or content was unusable
-            _logger.LogInformation("Falling back to Playwright to render the page."); // 🟢
-            html = await _playwrightService.RenderPageHtmlAsync(url);
-            if (html == null)
+            _logger.LogInformation("Falling back to Playwright to render the page.");
+            var playwrightResult = await _playwrightService.RenderPageHtmlAsync(url);
+
+            // Check if Playwright succeeded
+            if (!playwrightResult.Success)
             {
-                _logger.LogError("Both HttpClient and Playwright failed to fetch usable article HTML."); // 🟢
-                return new ArticleBodyResult
-                {
-                    ErrorMessage = "Failed to fetch HTML from all sources."
-                };
+                _logger.LogError("Both HttpClient and Playwright failed to fetch usable article HTML.");
+                return Result<ArticleBody>.Fail("Failed to fetch HTML from all sources.");
             }
+
+            html = playwrightResult.Value;
 
             // Try parsing the fallback HTML
             var fallbackResult = TryParseHtml(html);
             if (fallbackResult.Success)
             {
-                _logger.LogInformation("Parsed article using HtmlAgilityPack from Playwright-rendered HTML."); // 🟢
+                _logger.LogInformation("Parsed article using HtmlAgilityPack from Playwright-rendered HTML.");
                 return fallbackResult;
             }
 
             // Parsing failed for both HttpClient and Playwright
-            _logger.LogError("Playwright fetch succeeded, but parsing returned no usable content."); // 🟢
-            return new ArticleBodyResult
-            {
-                ErrorMessage = "Unable to parse meaningful content from rendered HTML."
-            };
+            _logger.LogError("Playwright fetch succeeded, but parsing returned no usable content.");
+            return Result<ArticleBody>.Fail("Unable to parse meaningful content from rendered HTML.");
         }
 
         // Combined parsing logic
-        private ArticleBodyResult TryParseHtml(string html)
+        private Result<ArticleBody> TryParseHtml(string html)
         {
-            var result = new ArticleBodyResult();
             var doc = new HtmlDocument();
             doc.LoadHtml(html);
             _logger.LogDebug(
                 "Loaded HTML into HtmlAgilityPack (Length: {HtmlLength})",
-                html.Length); // 🟢
+                html.Length);
 
             var bodyNode = GetMainContentNode(doc);
 
@@ -113,16 +111,16 @@ namespace AI.News.Agent.Services
                 {
                     _logger.LogDebug(
                         "Found {ParagraphCount} <p> tags in main content node.",
-                        paragraphs.Count); // 🟢
+                        paragraphs.Count);
 
                     var articleText = string.Join("\n\n", paragraphs.Select(p => p.InnerText.Trim()));
-                    result.ArticleBody = CleanText(articleText);
-                    return result;
+                    var cleaned = CleanText(articleText);
+                    return Result<ArticleBody>.Ok(new ArticleBody { Text = cleaned });
                 }
             }
-            _logger.LogInformation("Article body not found or contained no meaningful <p> content."); // 🟢
-            result.ErrorMessage = "No usable paragraph content found.";
-            return result;
+
+            _logger.LogInformation("Article body not found or contained no meaningful <p> content.");
+            return Result<ArticleBody>.Fail("No usable paragraph content found.");
         }
 
         // Locate the main content in the HTML document
@@ -155,7 +153,7 @@ namespace AI.News.Agent.Services
                         bodyNode = candidateNode;
                         _logger.LogDebug(
                             "Found article body using fallback XPath: {XPath}",
-                            xpath); // 🟢
+                            xpath);
                         break;
                     }
                 }
@@ -174,7 +172,7 @@ namespace AI.News.Agent.Services
 
                     if (bodyNode != null)
                     {
-                        _logger.LogInformation("Fallback: Selected <div> with most paragraph content."); // 🟢
+                        _logger.LogInformation("Fallback: Selected <div> with most paragraph content.");
                     }
                 }
             }
@@ -185,7 +183,9 @@ namespace AI.News.Agent.Services
         private string CleanText(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
+            {
                 return string.Empty;
+            }
 
             text = WebUtility.HtmlDecode(text);
             var lines = text.Split('\n')
@@ -214,16 +214,8 @@ namespace AI.News.Agent.Services
 
             _logger.LogDebug(
                 "Cleaned article body to final length: {CleanedLength}",
-                cleaned.Length); // 🟢
+                cleaned.Length);
             return cleaned.Trim();
         }
-    }
-
-    // Result status
-    public class ArticleBodyResult
-    {
-        public string? ArticleBody { get; set; }
-        public string? ErrorMessage { get; set; }
-        public bool Success => string.IsNullOrEmpty(ErrorMessage); // Determines if the operation was successful
     }
 }

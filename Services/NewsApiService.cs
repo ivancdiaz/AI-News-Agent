@@ -12,13 +12,14 @@ namespace AI.News.Agent.Services
 {
     public class NewsApiService
     {
+        private const string ApiKeyHeaderName = "x-api-key";
         private readonly HttpClient _client;
         private readonly string _apiKey;
         private readonly string _baseUrl = "https://newsapi.org/v2/top-headlines";
-        private readonly ILogger<NewsApiService> _logger; // 🟢
+        private readonly ILogger<NewsApiService> _logger;
 
 
-        // Inject HttpClient and ILogger via DI, apply headers 🟢
+        // Inject HttpClient and ILogger via DI, apply headers
         public NewsApiService(
             IHttpClientFactory httpClientFactory,
             string apiKey,
@@ -26,7 +27,7 @@ namespace AI.News.Agent.Services
         {
             _client = httpClientFactory.CreateClient("MyHttpClient");
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey), "API key cannot be null.");
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger)); // 🟢
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             // Apply centralized headers
             foreach (var header in HttpHeadersConfig.HttpClientHeaders)
@@ -35,17 +36,25 @@ namespace AI.News.Agent.Services
             }
 
             // Apply API-specific header
-            _client.DefaultRequestHeaders.TryAddWithoutValidation("x-api-key", _apiKey);
+            _client.DefaultRequestHeaders.TryAddWithoutValidation(ApiKeyHeaderName, _apiKey);
         }
 
-        public async Task<NewsApiResult> FetchTopHeadlinesAsync(string country = "us", int pageSize = 5)
+        public async Task<Result<List<Articles>>> FetchTopHeadlinesAsync(string country = "us", int pageSize = 5)
         {
-            var result = new NewsApiResult();
+            if (string.IsNullOrWhiteSpace(country))
+            {
+                return Result<List<Articles>>.Fail("Country code cannot be null or empty.");
+            }
+            if (pageSize <= 0)
+            {
+                return Result<List<Articles>>.Fail("Page size must be greater than zero.");
+            }
+
             var url = $"{_baseUrl}?country={country}&pageSize={pageSize}";
 
             _logger.LogInformation(
                 "Fetching top headlines from {Url}",
-                url); // 🟢
+                url);
 
             try
             {
@@ -56,20 +65,49 @@ namespace AI.News.Agent.Services
                      _logger.LogWarning(
                         "Request failed with status code {StatusCode} when accessing {Url}",
                         response.StatusCode,
-                        url); // 🟢
-                    result.ErrorMessage = $"Request failed: {response.StatusCode}";
-                    return result;
+                        url);
+                    return Result<List<Articles>>.Fail($"Request failed: {response.StatusCode}");
                 }
 
                 var responseBody = await response.Content.ReadAsStringAsync();
-                _logger.LogDebug("Successfully fetched news JSON (Length: {Length} chars)", responseBody.Length); // 🟢
+                _logger.LogDebug(
+                    "Successfully fetched news JSON (Length: {Length} chars)", 
+                    responseBody.Length);
 
-                var json = JObject.Parse(responseBody);
+                return ParseArticlesFromJson(responseBody);
+            }
+            catch (HttpRequestException ex)
+            {
+                // Handle network-related issues
+                _logger.LogError(
+                    ex, 
+                    "Failed to fetch news from {Url}", 
+                    url);
+                return Result<List<Articles>>.Fail($"Failed to fetch news: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex, 
+                    "Unexpected error occurred while fetching news from {Url}", 
+                    url);
+                return Result<List<Articles>>.Fail($"Unexpected error: {ex.Message}");
+            }
+        }
 
-                // Parse JSON response and map to Articles model
-                foreach (var item in json["articles"]!)
+        private Result<List<Articles>> ParseArticlesFromJson(string jsonString)
+        {
+            try
+            {
+                var json = JObject.Parse(jsonString);
+
+                var articles = new List<Articles>();
+
+                // // Children() returns array elements; falls back to empty if missing
+                var articleTokens = json["articles"]?.Children() ?? Enumerable.Empty<JToken>();
+                foreach (var item in articleTokens)
                 {
-                    result.Articles.Add(new Articles
+                    articles.Add(new Articles
                     {
                         Title = item["title"]?.ToString(),
                         Author = item["author"]?.ToString(),
@@ -79,26 +117,22 @@ namespace AI.News.Agent.Services
                         SourceUrl = item["url"]?.ToString()
                     });
                 }
-            }
-            catch (HttpRequestException ex)
-            {
-                // Handle network-related issues
-                _logger.LogError(ex, "Failed to fetch news from {Url}", url); // 🟢
-                result.ErrorMessage = $"Failed to fetch news: {ex.Message}";
+
+                if (articles.Count == 0)
+                {
+                    _logger.LogInformation("No articles found in the response JSON.");
+                    return Result<List<Articles>>.Fail("No articles found.");
+                }
+
+                return Result<List<Articles>>.Ok(articles);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error occurred while fetching news from {Url}", url); // 🟢
-                result.ErrorMessage = $"Unexpected error: {ex.Message}";
+                _logger.LogError(
+                    ex, 
+                    "Failed to parse articles JSON.");
+                return Result<List<Articles>>.Fail($"Failed to parse articles: {ex.Message}");
             }
-            return result;
         }
-    }
-
-    public class NewsApiResult
-    {
-        public List<Articles> Articles { get; set; } = new();
-        public string? ErrorMessage { get; set; }
-        public bool Success => string.IsNullOrEmpty(ErrorMessage);
     }
 }
