@@ -23,3 +23,6 @@ packages/
 wwwroot/**/*.publish.json
 wwwroot/**/*.gz
 wwwroot/**/*.br
+
+# Ignore appsettings with API keys
+appsettings.json

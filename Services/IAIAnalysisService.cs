@@ -1,10 +1,11 @@
 using System;
 using System.Threading.Tasks;
+using AI.News.Agent.Models;
 
 namespace AI.News.Agent.Services
 {
     public interface IAIAnalysisService
     {
-        Task<string> SummarizeArticleAsync(string articleText);
+        Task<Result<Summary>> SummarizeArticleAsync(string articleText);
     }
 }

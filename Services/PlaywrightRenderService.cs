@@ -1,86 +1,133 @@
 using Microsoft.Playwright;
+using Microsoft.Extensions.Logging;
 using AI.News.Agent.Config;
-using static System.Console;
+using AI.News.Agent.Models;
 
-public class PlaywrightRenderService : IPlaywrightRenderService, IAsyncDisposable
+namespace AI.News.Agent.Services
 {
-    private IPlaywright? _playwright;
-    private IBrowser? _browser;
-    private bool _isInitialized = false;
-
-    public async Task<string?> RenderPageHtmlAsync(string url)
+    public class PlaywrightRenderService : IPlaywrightRenderService, IAsyncDisposable
     {
-        try
-        {
-            await EnsureInitializedAsync();
+        private IPlaywright? _playwright;
+        private IBrowser? _browser;
+        private bool _isInitialized = false;
+        private readonly ILogger<PlaywrightRenderService> _logger;
 
-            if (_browser == null)
+        public PlaywrightRenderService(ILogger<PlaywrightRenderService> logger)
+        {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        public async Task<Result<string>> RenderPageHtmlAsync(string url)
+        {
+            try
             {
-                WriteLine("[Playwright Error] Browser not initialized.");
-                return null;
+                await EnsureInitializedAsync();
+
+                if (_browser == null)
+                {
+                    _logger.LogError(
+                        "Browser instance is null. Cannot render page: {Url}",
+                        url);
+                    return Result<string>.Fail("Browser instance is null. Cannot render page.");
+                }
+
+                _logger.LogInformation(
+                    "Creating new browser context for: {Url}", 
+                    url);
+
+                // Centralized User-Agent and headers
+                var context = await _browser.NewContextAsync(new BrowserNewContextOptions
+                {
+                    UserAgent = HttpHeadersConfig.UserAgent,
+                    Locale = "en-US",
+                    ExtraHTTPHeaders = HttpHeadersConfig.PlaywrightHeaders
+                });
+
+                var page = await context.NewPageAsync();
+
+                _logger.LogInformation(
+                    "Navigating to page: {Url}", 
+                    url);
+
+                var response = await page.GotoAsync(url, new PageGotoOptions
+                {
+                    WaitUntil = WaitUntilState.Load,
+                    Timeout = 20000 // 20 seconds
+                });
+
+                _logger.LogInformation("Waiting for content to render...");
+                await page.WaitForTimeoutAsync(2000); // wait for content to render
+
+                var content = await page.ContentAsync();
+                _logger.LogDebug(
+                    "Page content length: {Length} characters",
+                    content?.Length ?? 0);
+
+                await context.CloseAsync();
+                return Result<string>.Ok(content);
+            }
+            catch (TimeoutException ex)
+            {
+                _logger.LogWarning(
+                    ex, 
+                    "Timeout while rendering page: {Url}", 
+                    url);
+                return Result<string>.Fail($"Timeout while rendering page: {url}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex, 
+                    "Unexpected error while rendering page: {Url}", 
+                    url);
+                return Result<string>.Fail($"Unexpected error while rendering page: {url}");
+            }
+        }
+
+        // Reuse the same headless browser instance
+        private async Task EnsureInitializedAsync()
+        {
+            // Skip initialization if already done
+            if (_isInitialized)
+            {
+                return;
             }
 
-            // Centralized User-Agent and headers
-            var context = await _browser.NewContextAsync(new BrowserNewContextOptions
+            _logger.LogInformation("Initializing Playwright and launching headless browser...");
+
+            _playwright = await Playwright.CreateAsync();
+            _browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
             {
-                UserAgent = HttpHeadersConfig.UserAgent,
-                Locale = "en-US",
-                ExtraHTTPHeaders = HttpHeadersConfig.PlaywrightHeaders
+                Headless = true,
+                Timeout = 10000
             });
 
-            var page = await context.NewPageAsync();
+            _isInitialized = true;
+            _logger.LogInformation("Browser initialized successfully.");
+        }
 
-            var response = await page.GotoAsync(url, new PageGotoOptions
+        // Dispose the browser instance and reset state to prevent reuse after disposal
+        public async ValueTask DisposeAsync()
+        {
+            // DisposeAsync called, but Playwright was never initialized. Skipping cleanup
+            if (!_isInitialized)
             {
-                WaitUntil = WaitUntilState.Load,
-                Timeout = 20000 // 20 seconds
-            });
+                return;
+            }
 
-            await page.WaitForTimeoutAsync(2000); // wait for dynamic content to render
+            _logger.LogInformation("Disposing Playwright and closing browser...");
 
-            var content = await page.ContentAsync();
+            if (_browser != null)
+            {
+                await _browser.CloseAsync();
+                _browser = null;
+            }
 
-            await context.CloseAsync();
-            return content;
+            _playwright?.Dispose();
+            _playwright = null;
+            _isInitialized = false;
+
+            _logger.LogInformation("Playwright disposed.");
         }
-        catch (TimeoutException ex)
-        {
-            WriteLine($"[Playwright Timeout] {url} → {ex.Message}");
-            return null;
-        }
-        catch (Exception ex)
-        {
-            WriteLine($"[Playwright Error] {url} → {ex.Message}");
-            return null;
-        }
-    }
-
-    // Reuse the same headless browser instance
-    private async Task EnsureInitializedAsync()
-    {
-        if (_isInitialized) return;
-
-        _playwright = await Playwright.CreateAsync();
-        _browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-        {
-            Headless = true,
-            Timeout = 10000
-        });
-
-        _isInitialized = true;
-    }
-
-    // Dispose the browser instance and reset state to prevent reuse after disposal
-    public async ValueTask DisposeAsync()
-    {
-        if (_browser != null)
-        {
-            await _browser.CloseAsync();
-            _browser = null;
-        }
-
-        _playwright?.Dispose();
-        _playwright = null;
-        _isInitialized = false;
     }
 }

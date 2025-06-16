@@ -17,7 +17,7 @@ namespace AI.News.Agent.Services
         }
 
         // Delegate the call to the provider service
-        public async Task<NewsApiResult> GetNewsAsync()
+        public async Task<Result<List<Articles>>> GetNewsAsync()
         {
             // Fetch news using NewsApiService, which now returns a NewsApiResult
             return await _apiService.FetchTopHeadlinesAsync();
