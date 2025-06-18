@@ -215,6 +215,7 @@ namespace AI.News.Agent.Services
             _logger.LogDebug(
                 "Cleaned article body to final length: {CleanedLength}",
                 cleaned.Length);
+                
             return cleaned.Trim();
         }
     }

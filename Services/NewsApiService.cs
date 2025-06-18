@@ -18,15 +18,16 @@ namespace AI.News.Agent.Services
         private readonly string _baseUrl = "https://newsapi.org/v2/top-headlines";
         private readonly ILogger<NewsApiService> _logger;
 
-
         // Inject HttpClient and ILogger via DI, apply headers
         public NewsApiService(
             IHttpClientFactory httpClientFactory,
             string apiKey,
+            string baseUrl,
             ILogger<NewsApiService> logger)
         {
             _client = httpClientFactory.CreateClient("MyHttpClient");
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey), "API key cannot be null.");
+            _baseUrl = baseUrl ?? throw new ArgumentNullException(nameof(baseUrl));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             // Apply centralized headers
@@ -45,6 +46,7 @@ namespace AI.News.Agent.Services
             {
                 return Result<List<Articles>>.Fail("Country code cannot be null or empty.");
             }
+
             if (pageSize <= 0)
             {
                 return Result<List<Articles>>.Fail("Page size must be greater than zero.");
@@ -66,6 +68,7 @@ namespace AI.News.Agent.Services
                         "Request failed with status code {StatusCode} when accessing {Url}",
                         response.StatusCode,
                         url);
+
                     return Result<List<Articles>>.Fail($"Request failed: {response.StatusCode}");
                 }
 
@@ -83,6 +86,7 @@ namespace AI.News.Agent.Services
                     ex, 
                     "Failed to fetch news from {Url}", 
                     url);
+
                 return Result<List<Articles>>.Fail($"Failed to fetch news: {ex.Message}");
             }
             catch (Exception ex)
@@ -91,6 +95,7 @@ namespace AI.News.Agent.Services
                     ex, 
                     "Unexpected error occurred while fetching news from {Url}", 
                     url);
+
                 return Result<List<Articles>>.Fail($"Unexpected error: {ex.Message}");
             }
         }
@@ -128,9 +133,8 @@ namespace AI.News.Agent.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex, 
-                    "Failed to parse articles JSON.");
+                _logger.LogError(ex, "Failed to parse articles JSON.");
+
                 return Result<List<Articles>>.Fail($"Failed to parse articles: {ex.Message}");
             }
         }

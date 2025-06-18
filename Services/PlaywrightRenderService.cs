@@ -28,6 +28,7 @@ namespace AI.News.Agent.Services
                     _logger.LogError(
                         "Browser instance is null. Cannot render page: {Url}",
                         url);
+                        
                     return Result<string>.Fail("Browser instance is null. Cannot render page.");
                 }
 
@@ -72,6 +73,7 @@ namespace AI.News.Agent.Services
                     ex, 
                     "Timeout while rendering page: {Url}", 
                     url);
+
                 return Result<string>.Fail($"Timeout while rendering page: {url}");
             }
             catch (Exception ex)
@@ -80,6 +82,7 @@ namespace AI.News.Agent.Services
                     ex, 
                     "Unexpected error while rendering page: {Url}", 
                     url);
+
                 return Result<string>.Fail($"Unexpected error while rendering page: {url}");
             }
         }
