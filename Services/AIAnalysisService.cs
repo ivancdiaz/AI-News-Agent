@@ -15,7 +15,7 @@ namespace AI.News.Agent.Services
         private readonly HttpClient _httpClient;
         private readonly string _huggingFaceApiKey;
         private readonly ILogger<AIAnalysisService> _logger;
-        private readonly string _summarizationModelUrl = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn";
+        private readonly string _primaryModelUrl;
 
         // Constants for controlling chunking and token estimation
         private const int MaxTokensPerChunk = 900; // Set to 900 to stay 10–15% below HF limit due to token size estimation variance
@@ -32,13 +32,16 @@ namespace AI.News.Agent.Services
         public AIAnalysisService(
             IHttpClientFactory httpClientFactory,
             string huggingFaceApiKey,
-            ILogger<AIAnalysisService> logger)
+            ILogger<AIAnalysisService> logger,
+            string primaryModelUrl)
         {
             _huggingFaceApiKey = huggingFaceApiKey ?? throw new ArgumentNullException(nameof(huggingFaceApiKey));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _httpClient = httpClientFactory.CreateClient();
             _httpClient.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _huggingFaceApiKey);
+
+            _primaryModelUrl = primaryModelUrl ?? throw new ArgumentNullException(nameof(primaryModelUrl));
         }
 
         public async Task<Result<Summary>> SummarizeArticleAsync(string articleText)
@@ -82,6 +85,7 @@ namespace AI.News.Agent.Services
                     _logger.LogError(
                         "Quick summary failed: {ErrorMessage}", 
                         quickSummaryResult.ErrorMessage);
+
                     return Result<Summary>.Fail(quickSummaryResult.ErrorMessage ?? "Unknown summarization error.");
                 }
 
@@ -114,6 +118,7 @@ namespace AI.News.Agent.Services
                     chunkIndex,
                     chunk.Length,
                     chunkTokenCount);
+
                 _logger.LogInformation(
                     "Assigned summary token budget: {TokenBudgetPerChunkSummary} tokens",
                     tokenBudgetPerChunkSummary);
@@ -157,6 +162,7 @@ namespace AI.News.Agent.Services
                 _logger.LogError(
                     "Final summary failed: {ErrorMessage}", 
                     finalSummaryResult.ErrorMessage);
+                    
                 return Result<Summary>.Fail(finalSummaryResult.ErrorMessage ?? "Unknown summarization error.");
             }
 
@@ -217,7 +223,7 @@ namespace AI.News.Agent.Services
                         attempt, 
                         _httpClient.Timeout.TotalSeconds);
 
-                    var response = await _httpClient.PostAsync(_summarizationModelUrl, content);
+                    var response = await _httpClient.PostAsync(_primaryModelUrl, content);
                     var responseBody = await response.Content.ReadAsStringAsync();
 
                     if (response.IsSuccessStatusCode)
@@ -287,7 +293,6 @@ namespace AI.News.Agent.Services
                         return Result<Summary>.Fail($"Summarization failed: {ex.Message}");
                     }
                 }
-
                 // Exponential backoff + jitter
                 int delayMs = (int)(1500 * Math.Pow(2, attempt - 1)) + rng.Next(100, 500);
 
@@ -298,9 +303,11 @@ namespace AI.News.Agent.Services
 
                 await Task.Delay(delayMs);
             }
-
             // Final fallback after retries
-            _logger.LogError(lastException, "Summarization failed after {MaxRetries} retries.", maxRetries);
+            _logger.LogError(
+                lastException, "Summarization failed after {MaxRetries} retries.", 
+                maxRetries);
+
             return Result<Summary>.Fail("Summarization failed after all retries.");
         }
 

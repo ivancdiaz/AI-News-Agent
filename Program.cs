@@ -77,25 +77,35 @@ namespace AI.News.Agent
                         return;
                     }
 
-                    // Get the article body and handle Result<T>
-                    var articleBodyResult = await articleBodyService.GetArticleBodyAsync(testUrl);
+                    Result<ArticleBody> articleBodyResult;
 
-                    // Exit early if article fetch fails
-                    if (!articleBodyResult.Success)
+                    try
                     {
-                        logger.LogError(
-                            "Failed to retrieve article body: {Message}",
-                            articleBodyResult.ErrorMessage);
+                        // Attempt to retrieve the article body
+                        articleBodyResult = await articleBodyService.GetArticleBodyAsync(testUrl);
+
+                        // Exit if fetch was not successful
+                        if (!articleBodyResult.Success)
+                        {
+                            logger.LogError(
+                                "Failed to retrieve article body: {Message}", 
+                                articleBodyResult.ErrorMessage);
+                            return;
+                        }
+
+                        WriteLine($"\nArticle Body:\n{articleBodyResult.Value.Text}\n");
+                        
+                        logger.LogInformation(
+                            "Retrieved article body. Length: {Length} characters", 
+                            articleBodyResult.Value.Text.Length);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Unexpected exception during article body retrieval.");
                         return;
                     }
 
-                    WriteLine($"\nArticle Body:\n{articleBodyResult.Value.Text}\n");
-
-                    logger.LogInformation(
-                        "Retrieved article body. Length: {Length} characters",
-                        articleBodyResult.Value.Text.Length);
-
-                    // AI summarization service
+                    // Initialize AI summarization service
                     var aiAnalysisService = serviceProvider.GetRequiredService<IAIAnalysisService>();
 
                     logger.LogInformation(
@@ -106,27 +116,26 @@ namespace AI.News.Agent
 
                     try
                     {
-                        // Get the summarization result from the AI service
+                        // Attempt to summarize the article
                         summaryResult = await aiAnalysisService.SummarizeArticleAsync(articleBodyResult.Value.Text);
 
-                        // Check if the summarization was successful
-                        if (summaryResult.Success)
-                        {
-                            // Extract the summary text and proceed
-                            var summaryText = summaryResult.Value.Text;
-                            WriteLine($"\nAI Summary:\n{summaryText}\n");
-                        }
-                        else
+                        // Exit if summarization was not successful
+                        if (!summaryResult.Success)
                         {
                             logger.LogError(
                                 "Failed to summarize article: {Message}", 
                                 summaryResult.ErrorMessage);
+                            return;
                         }
+
+                        logger.LogInformation(
+                            "\nAI summary:\n{SummaryText}\n", 
+                            summaryResult.Value.Text);
                     }
                     catch (Exception ex)
                     {
-                        logger.LogError(ex, "AI summarization failed.");
-                        return; // Exit on summarization failure
+                        logger.LogError(ex, "Unexpected exception during article summarization.");
+                        return;
                     }
                 }
             }
@@ -176,7 +185,8 @@ namespace AI.News.Agent
             {
                 var factory = provider.GetRequiredService<IHttpClientFactory>();
                 var logger = provider.GetRequiredService<ILogger<NewsApiService>>();
-                return new NewsApiService(factory, apiKey, logger);
+                var baseUrl = config["ApiSettings:NewsApiBaseUrl"];
+                return new NewsApiService(factory, apiKey, baseUrl, logger);
             });
 
             // Register NewsService
@@ -187,7 +197,9 @@ namespace AI.News.Agent
             {
                 var factory = provider.GetRequiredService<IHttpClientFactory>();
                 var logger = provider.GetRequiredService<ILogger<AIAnalysisService>>();
-                return new AIAnalysisService(factory, huggingFaceApiKey, logger);
+                var config = provider.GetRequiredService<IConfiguration>();
+                var primaryModelUrl = config["AI:Models:Primary"];
+                return new AIAnalysisService(factory, huggingFaceApiKey, logger, primaryModelUrl);
             });
 
             // Register ArticleBodyService with its dependencies (HttpClientFactory + PlaywrightRenderService)
