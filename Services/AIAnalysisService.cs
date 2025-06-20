@@ -23,6 +23,7 @@ namespace AI.News.Agent.Services
         private const int FinalSummaryTokenBudget = 300;
         private const int MaxQuickSummaryTokenBudget = 200; // Smaller budget for short articles to prevent AI overgeneration
         private const int MinSummaryTokenLength = 50;
+        private const int MinChunkSummaryBudget = 150; // Enforce quality threshold
 
         // Minimum lengths as % of token budgets for chunk and final summaries
         private const double ChunkSummaryMinLengthPercentage = 0.8; 
@@ -110,6 +111,15 @@ namespace AI.News.Agent.Services
             int tokenBudgetPerChunkSummary = (int)Math.Floor(MaxTokensPerChunk / (double)chunkCount);
             int chunkIndex = 1;
 
+            // Ensure chunk summaries have enough detail by enforcing a minimum token budget
+            if (tokenBudgetPerChunkSummary < MinChunkSummaryBudget)
+            {
+                _logger.LogWarning("Chunk summary token budget too small ({TokenBudget}); using minimum of {MinChunkSummaryBudget}.",
+                    tokenBudgetPerChunkSummary, MinChunkSummaryBudget);
+
+                tokenBudgetPerChunkSummary = MinChunkSummaryBudget;
+            }
+
             foreach (var chunk in chunks)
             {
                 int chunkTokenCount = chunk.Length / EstimatedCharsPerToken;
@@ -150,6 +160,16 @@ namespace AI.News.Agent.Services
             // Combine chunk summaries for final summarization
             var combinedSummaries = string.Join(" ", chunkSummaries);
             _logger.LogInformation("Combining chunk summaries into final summary...");
+
+            // If Chunk Summaries used (MinChunkSummaryBudget), the combined summaries will exceed max token limit and need to be resized.
+            if (tokenBudgetPerChunkSummary == MinChunkSummaryBudget)
+            {
+                var resizedSummaries = await ChunkCombinedSummariesAsync(combinedSummaries, MaxTokensPerChunk);
+                if (!resizedSummaries.Success)
+                    return Result<Summary>.Fail(resizedSummaries.ErrorMessage);
+
+                combinedSummaries = resizedSummaries.Value;
+            }
 
             // Summarize text and return as a Summary object
             var finalSummaryResult = await SummarizeTextAsync(
@@ -309,6 +329,60 @@ namespace AI.News.Agent.Services
                 maxRetries);
 
             return Result<Summary>.Fail("Summarization failed after all retries.");
+        }
+
+        private async Task<Result<string>> ChunkCombinedSummariesAsync(string combinedSummaries, int maxTokens)
+        {
+            int compressPasses = 0;
+            const int MaxCompressPasses = 5;
+            
+            int estimatedCombinedSummaryTokens = combinedSummaries.Length / EstimatedCharsPerToken;
+
+            // Convert (MaxTokensPerChunk) budget back into estimated chars
+            int maxChunkSizeInChars = maxTokens * EstimatedCharsPerToken;
+
+            // If combined summaries exceed (MaxTokensPerChunk), recursively re-chunk and compress until under limit or max passes reached
+            while (estimatedCombinedSummaryTokens > maxTokens)
+            {
+                compressPasses++;
+                // Failsafe to stop retrying if summary still exceeds limit after too many compression attempts
+                if (compressPasses > MaxCompressPasses)
+                {
+                    return Result<string>.Fail("Failed to reduce summary to acceptable size after max compression passes.");
+                }
+
+                _logger.LogWarning(
+                    "Combined chunk summaries exceed final summarization token limit (~{EstimatedTokens} > {MaxAllowed}). Re-chunking...",
+                    estimatedCombinedSummaryTokens, 
+                    maxTokens);
+
+                var reducedChunks = ChunkText(combinedSummaries, maxChunkSizeInChars);
+                var reducedSummaries = new List<string>();
+
+                foreach (var chunk in reducedChunks)
+                {
+                    var reducedSummaryResult = await SummarizeTextAsync(
+                        chunk,
+                        FinalSummaryTokenBudget,
+                        FinalSummaryMinLengthPercentage);
+
+                    if (!reducedSummaryResult.Success)
+                    {
+                        return Result<string>.Fail(reducedSummaryResult.ErrorMessage ?? "Unknown re-chunk summarization error.");
+                    }
+                    reducedSummaries.Add(reducedSummaryResult.Value.Text);
+                }
+
+                combinedSummaries = string.Join(" ", reducedSummaries);
+                estimatedCombinedSummaryTokens = combinedSummaries.Length / EstimatedCharsPerToken;
+            }
+
+            _logger.LogInformation(
+                "Re-chunking of combined summaries completed in compression pass: {CompressPasses}. Final length: ~{FinalTokens} tokens.",
+                compressPasses, 
+                estimatedCombinedSummaryTokens);
+
+            return Result<string>.Ok(combinedSummaries);
         }
 
         // Splits the input text into chunks of specified size

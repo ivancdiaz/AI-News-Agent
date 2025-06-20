@@ -15,7 +15,7 @@ namespace AI.News.Agent.Services
         private const string ApiKeyHeaderName = "x-api-key";
         private readonly HttpClient _client;
         private readonly string _apiKey;
-        private readonly string _baseUrl = "https://newsapi.org/v2/top-headlines";
+        private readonly string _baseUrl;
         private readonly ILogger<NewsApiService> _logger;
 
         // Inject HttpClient and ILogger via DI, apply headers
