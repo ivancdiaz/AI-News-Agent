@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using AI.News.Agent.Services;
 using AI.News.Agent.Output;
 using AI.News.Agent.Models;
+using Microsoft.Extensions.Options;
+using AI.News.Agent.Config;
 using static System.Console;
 
 namespace AI.News.Agent
@@ -21,11 +23,8 @@ namespace AI.News.Agent
                     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
                     .Build();
 
-                string apiKey = config["ApiKeys:NewsApiKey"];
-                string huggingFaceApiKey = config["ApiKeys:HuggingFaceApiKey"];
-
                 // Setup DI container via new method
-                var serviceProvider = ConfigureServices(config, apiKey, huggingFaceApiKey);
+                var serviceProvider = ConfigureServices(config);
 
                 // Build service and ensure DisposeAsync() is called for PlaywrightRenderService
                 await using (serviceProvider as IAsyncDisposable)
@@ -34,13 +33,15 @@ namespace AI.News.Agent
                     logger.LogInformation("News Agent initialized. External APIs configured. Ready to process input.");
 
                     // Validate both API keys are present and not empty
-                    if (string.IsNullOrWhiteSpace(apiKey))
+                    var apiKeys = serviceProvider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
+
+                    if (string.IsNullOrWhiteSpace(apiKeys.NewsApiKey))
                     {
                         logger.LogError("NewsAPI key is missing from configuration. Exiting program.");
                         return;
                     }
 
-                    if (string.IsNullOrWhiteSpace(huggingFaceApiKey))
+                    if (string.IsNullOrWhiteSpace(apiKeys.HuggingFaceApiKey))
                     {
                         logger.LogError("Hugging Face API key is missing from configuration. Exiting program.");
                         return;
@@ -152,7 +153,7 @@ namespace AI.News.Agent
         }
 
         // Configure DI container and register services
-        static ServiceProvider ConfigureServices(IConfiguration config, string apiKey, string huggingFaceApiKey)
+        static ServiceProvider ConfigureServices(IConfiguration config)
         {
             // Setup dependency injection
             var services = new ServiceCollection();
@@ -172,6 +173,10 @@ namespace AI.News.Agent
 
             // Add IConfiguration to DI if other services need it
             services.AddSingleton<IConfiguration>(config);
+            services.Configure<ApiKeySettings>(config.GetSection("ApiKeys"));
+            services.Configure<ApiSettings>(config.GetSection("ApiSettings"));
+            services.Configure<AIModelSettings>(config.GetSection("AI:Models"));
+
 
             // Register PlaywrightRenderService as a singleton
             services.AddSingleton<IPlaywrightRenderService>(provider =>
@@ -185,8 +190,9 @@ namespace AI.News.Agent
             {
                 var factory = provider.GetRequiredService<IHttpClientFactory>();
                 var logger = provider.GetRequiredService<ILogger<NewsApiService>>();
-                var baseUrl = config["ApiSettings:NewsApiBaseUrl"];
-                return new NewsApiService(factory, apiKey, baseUrl, logger);
+                var apiSettings = provider.GetRequiredService<IOptions<ApiSettings>>().Value;
+                var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
+                return new NewsApiService(factory, apiKeys.NewsApiKey, apiSettings.NewsApiBaseUrl, logger);
             });
 
             // Register NewsService
@@ -197,9 +203,9 @@ namespace AI.News.Agent
             {
                 var factory = provider.GetRequiredService<IHttpClientFactory>();
                 var logger = provider.GetRequiredService<ILogger<AIAnalysisService>>();
-                var config = provider.GetRequiredService<IConfiguration>();
-                var primaryModelUrl = config["AI:Models:Primary"];
-                return new AIAnalysisService(factory, huggingFaceApiKey, logger, primaryModelUrl);
+                var modelSettings = provider.GetRequiredService<IOptions<AIModelSettings>>().Value;
+                var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
+                return new AIAnalysisService(factory, apiKeys.HuggingFaceApiKey, logger, modelSettings.Primary);
             });
 
             // Register ArticleBodyService with its dependencies (HttpClientFactory + PlaywrightRenderService)
