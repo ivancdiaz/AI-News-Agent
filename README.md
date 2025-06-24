@@ -2,8 +2,8 @@
 
 C# console app prototype for news aggregation that fetches real-time headline URLs from NewsAPI, extracts full article story content from selected URLs, and summarizes it with AI.
 
-> **Version:** `v1.0-preapi`  
-> **Note:** This is the CLI-based version. A full web API version is planned as the next major update.                   
+> **Version:** `v1.1-preapi-refined`  
+> **Note:** Stable CLI version before transitioning to a Web API. This release includes improved summary chunking with recursive fallback logic, AI summarization retry with exponential backoff, structured logging combined with centralized Result<T> error handling, and proper configuration management.                   
 
 ---
 

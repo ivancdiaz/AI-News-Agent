@@ -78,7 +78,7 @@ namespace AI.News.Agent.Services
                 return Result<ArticleBody>.Fail("Failed to fetch HTML from all sources.");
             }
 
-            html = playwrightResult.Value;
+            html = playwrightResult.Value!;
 
             // Try parsing the fallback HTML
             var fallbackResult = TryParseHtml(html);

@@ -2,6 +2,6 @@ namespace AI.News.Agent.Config
 {
     public class ApiSettings
     {
-        public string NewsApiBaseUrl { get; set; }
+        public string NewsApiBaseUrl { get; set; } = default!;
     }
 }

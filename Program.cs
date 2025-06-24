@@ -55,7 +55,7 @@ namespace AI.News.Agent
                     var newsResult = await newsService.FetchTopHeadlinesAsync();
                     if (newsResult.Success)
                     {
-                        outputService.DisplayArticles(newsResult.Value);
+                        outputService.DisplayArticles(newsResult.Value!);
                     }
                     else
                     {
@@ -70,7 +70,7 @@ namespace AI.News.Agent
 
                     // Prompt for the URL
                     WriteLine("Please enter the URL of the article:"); // Future update: Select URL from NewsAPI list
-                    string testUrl = ReadLine();
+                    string? testUrl = ReadLine();
 
                     if (string.IsNullOrEmpty(testUrl))
                     {
@@ -94,7 +94,7 @@ namespace AI.News.Agent
                             return;
                         }
 
-                        WriteLine($"\nArticle Body:\n{articleBodyResult.Value.Text}\n");
+                        WriteLine($"\nArticle Body:\n{articleBodyResult.Value!.Text}\n");
                         
                         logger.LogInformation(
                             "Retrieved article body. Length: {Length} characters", 
@@ -131,7 +131,7 @@ namespace AI.News.Agent
 
                         logger.LogInformation(
                             "\nAI summary:\n{SummaryText}\n", 
-                            summaryResult.Value.Text);
+                            summaryResult.Value!.Text);
                     }
                     catch (Exception ex)
                     {

@@ -90,7 +90,7 @@ namespace AI.News.Agent.Services
                     return Result<Summary>.Fail(quickSummaryResult.ErrorMessage ?? "Unknown summarization error.");
                 }
 
-                int quickSummaryTokenCount = quickSummaryResult.Value.Text.Length / EstimatedCharsPerToken;
+                int quickSummaryTokenCount = quickSummaryResult.Value!.Text.Length / EstimatedCharsPerToken;
 
                 _logger.LogInformation(
                     "Final summary token count: ~{QuickSummaryTokenCount}",
@@ -151,7 +151,7 @@ namespace AI.News.Agent.Services
                 _logger.LogInformation(
                     "\nChunk #{ChunkIndex} Summary:\n{ChunkSummary}\n",
                     chunkIndex,
-                    chunkSummaryResult.Value.Text);
+                    chunkSummaryResult.Value!.Text);
 
                 chunkSummaries.Add(chunkSummaryResult.Value.Text);
                 chunkIndex++;
@@ -166,14 +166,14 @@ namespace AI.News.Agent.Services
             {
                 var resizedSummaries = await ChunkCombinedSummariesAsync(combinedSummaries, MaxTokensPerChunk);
                 if (!resizedSummaries.Success)
-                    return Result<Summary>.Fail(resizedSummaries.ErrorMessage);
+                    return Result<Summary>.Fail(resizedSummaries.ErrorMessage ?? "Unknown resized summary error");
 
                 combinedSummaries = resizedSummaries.Value;
             }
 
             // Summarize text and return as a Summary object
             var finalSummaryResult = await SummarizeTextAsync(
-                combinedSummaries,
+                combinedSummaries!,
                 FinalSummaryTokenBudget,
                 FinalSummaryMinLengthPercentage);
 
@@ -186,7 +186,7 @@ namespace AI.News.Agent.Services
                 return Result<Summary>.Fail(finalSummaryResult.ErrorMessage ?? "Unknown summarization error.");
             }
 
-            int finalSummaryTokenCount = finalSummaryResult.Value.Text.Length / EstimatedCharsPerToken;
+            int finalSummaryTokenCount = finalSummaryResult.Value!.Text.Length / EstimatedCharsPerToken;
 
             _logger.LogInformation(
                 "Final summary token count: ~{FinalSummaryTokenCount}",
@@ -229,7 +229,7 @@ namespace AI.News.Agent.Services
             const int maxRetries = 3; // Retry attempts 
             var rng = new Random();   // Create jitter for backoff delays
 
-            Exception lastException = null;
+            Exception? lastException = null;
 
             for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
@@ -370,7 +370,7 @@ namespace AI.News.Agent.Services
                     {
                         return Result<string>.Fail(reducedSummaryResult.ErrorMessage ?? "Unknown re-chunk summarization error.");
                     }
-                    reducedSummaries.Add(reducedSummaryResult.Value.Text);
+                    reducedSummaries.Add(reducedSummaryResult.Value!.Text);
                 }
 
                 combinedSummaries = string.Join(" ", reducedSummaries);

@@ -6,6 +6,6 @@ namespace AI.News.Agent.Models
     {
         // Map the Hugging Face "summary_text" JSON field to Text property
         [JsonProperty("summary_text")]
-        public string? Text { get; set; } = string.Empty;
+        public string Text { get; set; } = string.Empty;
     }
 }
