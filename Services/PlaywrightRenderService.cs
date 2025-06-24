@@ -65,7 +65,7 @@ namespace AI.News.Agent.Services
                     content?.Length ?? 0);
 
                 await context.CloseAsync();
-                return Result<string>.Ok(content);
+                return Result<string>.Ok(content!);
             }
             catch (TimeoutException ex)
             {
