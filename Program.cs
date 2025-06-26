@@ -1,223 +1,77 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Net.Http;
-using System.Threading.Tasks;
-using AI.News.Agent.Services;
-using AI.News.Agent.Output;
-using AI.News.Agent.Models;
 using Microsoft.Extensions.Options;
+using AI.News.Agent.Services;
 using AI.News.Agent.Config;
-using static System.Console;
 
-namespace AI.News.Agent
+var builder = WebApplication.CreateBuilder(args);
+
+// Load config and environment
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true)
+    .AddEnvironmentVariables();
+
+// Setup logging
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
+
+// Config bindings
+builder.Services.Configure<ApiKeySettings>(builder.Configuration.GetSection("ApiKeys"));
+builder.Services.Configure<ApiSettings>(builder.Configuration.GetSection("ApiSettings"));
+builder.Services.Configure<AIModelSettings>(builder.Configuration.GetSection("AI:Models"));
+
+// Register services
+builder.Services.AddHttpClient();
+
+builder.Services.AddSingleton<IPlaywrightRenderService, PlaywrightRenderService>();
+
+builder.Services.AddTransient<NewsApiService>(provider =>
 {
-    class Program
-    {
-        static async Task Main(string[] args)
-        {
-            try
-            {
-                // Load configuration from appsettings.json
-                var config = new ConfigurationBuilder()
-                    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-                    .Build();
+    var factory = provider.GetRequiredService<IHttpClientFactory>();
+    var logger = provider.GetRequiredService<ILogger<NewsApiService>>();
+    var apiSettings = provider.GetRequiredService<IOptions<ApiSettings>>().Value;
+    var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
+    return new NewsApiService(factory, apiKeys.NewsApiKey, apiSettings.NewsApiBaseUrl, logger);
+});
 
-                // Setup DI container via new method
-                var serviceProvider = ConfigureServices(config);
+builder.Services.AddTransient<ArticleBodyService>(provider =>
+{
+    var factory = provider.GetRequiredService<IHttpClientFactory>();
+    var renderer = provider.GetRequiredService<IPlaywrightRenderService>();
+    var logger = provider.GetRequiredService<ILogger<ArticleBodyService>>();
+    return new ArticleBodyService(factory, renderer, logger);
+});
 
-                // Build service and ensure DisposeAsync() is called for PlaywrightRenderService
-                await using (serviceProvider as IAsyncDisposable)
-                {
-                    var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
-                    logger.LogInformation("News Agent initialized. External APIs configured. Ready to process input.");
+builder.Services.AddTransient<IAIAnalysisService>(provider =>
+{
+    var factory = provider.GetRequiredService<IHttpClientFactory>();
+    var logger = provider.GetRequiredService<ILogger<AIAnalysisService>>();
+    var modelSettings = provider.GetRequiredService<IOptions<AIModelSettings>>().Value;
+    var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
+    return new AIAnalysisService(factory, apiKeys.HuggingFaceApiKey, logger, modelSettings.Primary);
+});
 
-                    // Validate both API keys are present and not empty
-                    var apiKeys = serviceProvider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
+// Add controllers and swagger
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
-                    if (string.IsNullOrWhiteSpace(apiKeys.NewsApiKey))
-                    {
-                        logger.LogError("NewsAPI key is missing from configuration. Exiting program.");
-                        return;
-                    }
+var app = builder.Build();
 
-                    if (string.IsNullOrWhiteSpace(apiKeys.HuggingFaceApiKey))
-                    {
-                        logger.LogError("Hugging Face API key is missing from configuration. Exiting program.");
-                        return;
-                    }
-
-                    // Fetch news using NewsApiService and handle Result<T> appropriately
-                    var newsService = serviceProvider.GetRequiredService<NewsApiService>();
-                    var outputService = new OutputService();
-
-                    // Fetch and display top headlines first
-                    var newsResult = await newsService.FetchTopHeadlinesAsync();
-                    if (newsResult.Success)
-                    {
-                        outputService.DisplayArticles(newsResult.Value!);
-                    }
-                    else
-                    {
-                        logger.LogError(
-                            "Failed to fetch top headlines: {Message}",
-                            newsResult.ErrorMessage);
-                        return;
-                    }
-
-                    // Get ArticleBodyService with dependencies
-                    var articleBodyService = serviceProvider.GetRequiredService<ArticleBodyService>();
-
-                    // Prompt for the URL
-                    WriteLine("Please enter the URL of the article:"); // Future update: Select URL from NewsAPI list
-                    string? testUrl = ReadLine();
-
-                    if (string.IsNullOrEmpty(testUrl))
-                    {
-                        logger.LogWarning("No URL was provided. Exiting.");
-                        return;
-                    }
-
-                    Result<ArticleBody> articleBodyResult;
-
-                    try
-                    {
-                        // Attempt to retrieve the article body
-                        articleBodyResult = await articleBodyService.GetArticleBodyAsync(testUrl);
-
-                        // Exit if fetch was not successful
-                        if (!articleBodyResult.Success)
-                        {
-                            logger.LogError(
-                                "Failed to retrieve article body: {Message}", 
-                                articleBodyResult.ErrorMessage);
-                            return;
-                        }
-
-                        WriteLine($"\nArticle Body:\n{articleBodyResult.Value!.Text}\n");
-                        
-                        logger.LogInformation(
-                            "Retrieved article body. Length: {Length} characters", 
-                            articleBodyResult.Value.Text.Length);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, "Unexpected exception during article body retrieval.");
-                        return;
-                    }
-
-                    // Initialize AI summarization service
-                    var aiAnalysisService = serviceProvider.GetRequiredService<IAIAnalysisService>();
-
-                    logger.LogInformation(
-                        "Passing article to AI summarization. Length: {CharCount} characters",
-                        articleBodyResult.Value.Text.Length);
-
-                    Result<Summary> summaryResult;
-
-                    try
-                    {
-                        // Attempt to summarize the article
-                        summaryResult = await aiAnalysisService.SummarizeArticleAsync(articleBodyResult.Value.Text);
-
-                        // Exit if summarization was not successful
-                        if (!summaryResult.Success)
-                        {
-                            logger.LogError(
-                                "Failed to summarize article: {Message}", 
-                                summaryResult.ErrorMessage);
-                            return;
-                        }
-
-                        logger.LogInformation(
-                            "\nAI summary:\n{SummaryText}\n", 
-                            summaryResult.Value!.Text);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, "Unexpected exception during article summarization.");
-                        return;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                // Fallback logger if DI logger is not available before serviceProvider is built
-                using var fallbackLoggerFactory = LoggerFactory.Create(builder =>
-                {
-                    builder.AddConsole();
-                });
-                var fallbackLogger = fallbackLoggerFactory.CreateLogger<Program>();
-                fallbackLogger.LogCritical(ex, "Unhandled exception occurred in the main application loop.");
-            }
-        }
-
-        // Configure DI container and register services
-        static ServiceProvider ConfigureServices(IConfiguration config)
-        {
-            // Setup dependency injection
-            var services = new ServiceCollection();
-            services.AddHttpClient(); // Register IHttpClientFactory
-
-            // Add logging to the DI container
-            services.AddLogging(logging =>
-            {
-                logging.ClearProviders(); // Remove existing logging providers
-                logging.AddConsole(options =>
-                {
-                    // Send all console logs to stderr to avoid overlap with stdout messages
-                    options.LogToStandardErrorThreshold = LogLevel.Trace;
-                });
-                logging.AddConfiguration(config.GetSection("Logging"));
-            });
-
-            // Add IConfiguration to DI if other services need it
-            services.AddSingleton<IConfiguration>(config);
-            services.Configure<ApiKeySettings>(config.GetSection("ApiKeys"));
-            services.Configure<ApiSettings>(config.GetSection("ApiSettings"));
-            services.Configure<AIModelSettings>(config.GetSection("AI:Models"));
-
-
-            // Register PlaywrightRenderService as a singleton
-            services.AddSingleton<IPlaywrightRenderService>(provider =>
-            {
-                var logger = provider.GetRequiredService<ILogger<PlaywrightRenderService>>();
-                return new PlaywrightRenderService(logger);
-            });
-
-            // Register NewsApiService with NewsAPI key
-            services.AddTransient<NewsApiService>(provider =>
-            {
-                var factory = provider.GetRequiredService<IHttpClientFactory>();
-                var logger = provider.GetRequiredService<ILogger<NewsApiService>>();
-                var apiSettings = provider.GetRequiredService<IOptions<ApiSettings>>().Value;
-                var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
-                return new NewsApiService(factory, apiKeys.NewsApiKey, apiSettings.NewsApiBaseUrl, logger);
-            });
-
-            // Register NewsService
-            services.AddTransient<NewsService>();
-
-            // Register AIAnalysisService with Hugging Face API key and with logger injection
-            services.AddTransient<IAIAnalysisService>(provider =>
-            {
-                var factory = provider.GetRequiredService<IHttpClientFactory>();
-                var logger = provider.GetRequiredService<ILogger<AIAnalysisService>>();
-                var modelSettings = provider.GetRequiredService<IOptions<AIModelSettings>>().Value;
-                var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
-                return new AIAnalysisService(factory, apiKeys.HuggingFaceApiKey, logger, modelSettings.Primary);
-            });
-
-            // Register ArticleBodyService with its dependencies (HttpClientFactory + PlaywrightRenderService)
-            services.AddTransient<ArticleBodyService>(provider =>
-            {
-                var factory = provider.GetRequiredService<IHttpClientFactory>();
-                var playwright = provider.GetRequiredService<IPlaywrightRenderService>();
-                var logger = provider.GetRequiredService<ILogger<ArticleBodyService>>();
-                return new ArticleBodyService(factory, playwright, logger);
-            });
-
-            return services.BuildServiceProvider();
-        }
-    }
+// Config middleware
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
+
+app.UseRouting();
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();
