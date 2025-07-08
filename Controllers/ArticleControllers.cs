@@ -5,6 +5,9 @@ using AI.News.Agent.Models;
 
 namespace AI.News.Agent.Controllers
 {
+    /// <summary>
+    /// Handles operations related to news articles, such as retrieving headlines, extracting article content, and summarizing articles.
+    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     [Produces("application/json")]
@@ -27,10 +30,15 @@ namespace AI.News.Agent.Controllers
             _logger = logger;
         }
 
-        // GET: /api/articles/top-headlines
+        /// <summary>
+        /// Retrieves the latest top headlines from a specified country.
+        /// </summary>
+        /// <param name="country">The country code ("us", "gb", "ca").</param>
+        /// <param name="pageSize">The maximum number of articles to return (default: 5).</param>
+        /// <returns>A list of top headline articles.</returns>
         [HttpGet("top-headlines")]
-        [ProducesResponseType(200, Type = typeof(List<Articles>))]
-        [ProducesResponseType(400)]
+        [ProducesResponseType(typeof(List<Articles>), 200)]
+        [ProducesResponseType(typeof(ProblemDetails), 400)]
         public async Task<IActionResult> GetTopHeadlines([FromQuery] string country = "us", [FromQuery] int pageSize = 5)
         {
             var result = await _newsApiService.FetchTopHeadlinesAsync(country, pageSize);
@@ -38,25 +46,36 @@ namespace AI.News.Agent.Controllers
             if (!result.Success)
             {
                 _logger.LogWarning(
-                    "Failed to fetch headlines: {Message}", 
+                    "Failed to fetch top headlines: {Message}",
                     result.ErrorMessage);
 
-                return BadRequest(result.ErrorMessage);
+                return BadRequest(CreateProblem(
+                    type: "https://ainewsagent.local/errors/top-headlines-fetch-failed",
+                    title: "Failed to fetch news headlines",
+                    detail: result.ErrorMessage!));
             }
 
             return Ok(result.Value);
         }
 
-        // GET: /api/articles/body
+        /// <summary>
+        /// Extracts the body of a news article from the given URL.
+        /// </summary>
+        /// <param name="url">The full URL of the article.</param>
+        /// <returns>The extracted article body content.</returns>
         [HttpGet("body")]
-        [ProducesResponseType(200, Type = typeof(ArticleBody))]
-        [ProducesResponseType(400)]
+        [ProducesResponseType(typeof(ArticleBody), 200)]
+        [ProducesResponseType(typeof(ProblemDetails), 400)]
         public async Task<IActionResult> GetArticleBody([FromQuery] string url)
         {
             if (string.IsNullOrWhiteSpace(url))
             {
                 _logger.LogWarning("GetArticleBody called with null or empty URL.");
-                return BadRequest("URL must be provided.");
+                
+                return BadRequest(CreateProblem(
+                    type: "https://ainewsagent.local/errors/url-missing",
+                    title: "URL is required",
+                    detail: "The 'url' must be provided."));
             }
 
             var result = await _articleBodyService.GetArticleBodyAsync(url);
@@ -67,22 +86,33 @@ namespace AI.News.Agent.Controllers
                     "Failed to extract article body: {Message}", 
                     result.ErrorMessage);
 
-                return BadRequest(result.ErrorMessage);
+                return BadRequest(CreateProblem(
+                    type: "https://ainewsagent.local/errors/body-extraction-failed",
+                    title: "Article body extraction failed",
+                    detail: result.ErrorMessage!));
             }
 
             return Ok(result.Value);
         }
 
-        // GET: /api/articles/summarize
+        /// <summary>
+        /// Extracts the article body from the given URL, then summarizes it using AI.
+        /// </summary>
+        /// <param name="url">The full URL of the article.</param>
+        /// <returns>A summary of the article body content.</returns>
         [HttpGet("summarize")]
-        [ProducesResponseType(200, Type = typeof(Summary))]
-        [ProducesResponseType(400)]
+        [ProducesResponseType(typeof(Summary), 200)]
+        [ProducesResponseType(typeof(ProblemDetails), 400)]
         public async Task<IActionResult> Summarize([FromQuery] string url)
         {
             if (string.IsNullOrWhiteSpace(url))
             {
                 _logger.LogWarning("Summarize called with null or empty URL.");
-                return BadRequest("URL must be provided.");
+
+                return BadRequest(CreateProblem(
+                    type: "https://ainewsagent.local/errors/url-missing",
+                    title: "URL is required",
+                    detail: "The 'url' must be provided."));
             }
 
             var bodyResult = await _articleBodyService.GetArticleBodyAsync(url);
@@ -92,7 +122,10 @@ namespace AI.News.Agent.Controllers
                     "Body extraction failed during summarization: {Message}", 
                     bodyResult.ErrorMessage);
 
-                return BadRequest($"Body extraction failed: {bodyResult.ErrorMessage}");
+                return BadRequest(CreateProblem(
+                    type: "https://ainewsagent.local/errors/body-extraction-failed",
+                    title: "Article body extraction failed",
+                    detail: bodyResult.ErrorMessage!));
             }
 
             var summaryResult = await _aiAnalysisService.SummarizeArticleAsync(bodyResult.Value!.Text);
@@ -101,11 +134,28 @@ namespace AI.News.Agent.Controllers
                 _logger.LogWarning(
                     "Summarization failed: {Message}", 
                     summaryResult.ErrorMessage);
-                    
-                return BadRequest($"Summarization failed: {summaryResult.ErrorMessage}");
+
+                return BadRequest(CreateProblem(
+                    type: "https://ainewsagent.local/errors/summarization-failed",
+                    title: "Article summarization failed",
+                    detail: summaryResult.ErrorMessage!));
             }
 
             return Ok(summaryResult.Value);
+        }
+
+        // Sets consistent formatting for 400 level errors
+        // Uses placeholder URIs (https://ainewsagent.local/errors/...) per RFC 7807 standards.
+        private ProblemDetails CreateProblem(string type, string title, string detail, int status = 400)
+        {
+            return new ProblemDetails
+            {
+                Type = type,
+                Title = title,
+                Detail = detail,
+                Status = status,
+                Instance = HttpContext.Request.Path
+            };
         }
     }
 }

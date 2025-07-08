@@ -4,8 +4,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi.Models;
 using AI.News.Agent.Services;
 using AI.News.Agent.Config;
+using System.Reflection;
+using System.IO;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -56,10 +59,24 @@ builder.Services.AddTransient<IAIAnalysisService>(provider =>
     return new AIAnalysisService(factory, apiKeys.HuggingFaceApiKey, logger, modelSettings.Primary);
 });
 
-// Add controllers and swagger
+// Add controllers
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+// Add Swagger with XML comments and custom versioning 
+builder.Services.AddSwaggerGen(options =>
+{
+    // Set versioning and metadata for the API UI
+    options.SwaggerDoc("v1.2", new OpenApiInfo
+    {
+        Version = "v1.2",
+        Title = "AI.News.Agent API",
+        Description = "API for fetching and extracting news articles, with AI-powered summarization"
+    });
+    // Add XML comments for Swagger UI
+    var xmlFilename = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, xmlFilename));
+});
 
 var app = builder.Build();
 
@@ -67,7 +84,11 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(c =>
+    {
+        // Set the versioned JSON endpoint
+        c.SwaggerEndpoint("/swagger/v1.2/swagger.json", "AI.News.Agent API v1.2");
+    });
 }
 
 app.UseRouting();
