@@ -24,5 +24,5 @@ wwwroot/**/*.publish.json
 wwwroot/**/*.gz
 wwwroot/**/*.br
 
-# Ignore appsettings with API keys
+# Ignore local appsettings with private API keys
 appsettings.json
