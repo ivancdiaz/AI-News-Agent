@@ -16,17 +16,20 @@ namespace AI.News.Agent.Controllers
         private readonly NewsApiService _newsApiService;
         private readonly ArticleBodyService _articleBodyService;
         private readonly IAIAnalysisService _aiAnalysisService;
+        private readonly IQueryParserService _queryParserService;
         private readonly ILogger<ArticlesController> _logger;
 
         public ArticlesController(
             NewsApiService newsApiService,
             ArticleBodyService articleBodyService,
             IAIAnalysisService aiAnalysisService,
+            IQueryParserService queryParserService,
             ILogger<ArticlesController> logger)
         {
             _newsApiService = newsApiService;
             _articleBodyService = articleBodyService;
             _aiAnalysisService = aiAnalysisService;
+            _queryParserService = queryParserService;
             _logger = logger;
         }
 
@@ -56,6 +59,55 @@ namespace AI.News.Agent.Controllers
             }
 
             return Ok(result.Value);
+        }
+
+        /// <summary>
+        /// Parses a natural-language search query and returns matching articles from NewsAPI's /everything search.
+        /// </summary>
+        /// <param name="query">The natural-language search query describing the news being requested.</param>
+        /// <returns>A list of articles matching the parsed search query.</returns>
+        [HttpGet("search")]
+        [ProducesResponseType(typeof(List<Articles>), 200)]
+        [ProducesResponseType(typeof(ProblemDetails), 400)]
+        public async Task<IActionResult> SearchArticles([FromQuery] string query)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                _logger.LogWarning("SearchArticles called with null or empty query.");
+
+                return BadRequest(CreateProblem(
+                    type: "https://ainewsagent.local/errors/query-missing",
+                    title: "Query is required",
+                    detail: "The 'query' must be provided."));
+            }
+
+            var queryResult = await _queryParserService.ParseQuery(query);
+            if (!queryResult.Success)
+            {
+                _logger.LogWarning(
+                    "Failed to parse query: {Message}",
+                    queryResult.ErrorMessage);
+
+                return BadRequest(CreateProblem(
+                    type: "https://ainewsagent.local/errors/query-parse-failed",
+                    title: "Failed to interpret search query",
+                    detail: queryResult.ErrorMessage!));
+            }
+
+            var searchResult = await _newsApiService.SearchArticlesAsync(queryResult.Value!);
+            if (!searchResult.Success)
+            {
+                _logger.LogWarning(
+                    "Failed to fetch search results: {Message}",
+                    searchResult.ErrorMessage);
+
+                return BadRequest(CreateProblem(
+                    type: "https://ainewsagent.local/errors/search-fetch-failed",
+                    title: "Failed to fetch matching articles",
+                    detail: searchResult.ErrorMessage!));
+            }
+
+            return Ok(searchResult.Value);
         }
 
         /// <summary>

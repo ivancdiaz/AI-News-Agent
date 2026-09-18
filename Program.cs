@@ -33,13 +33,15 @@ builder.Services.AddHttpClient();
 
 builder.Services.AddSingleton<IPlaywrightRenderService, PlaywrightRenderService>();
 
+builder.Services.AddTransient<IQueryParserService, MockQueryParserService>();
+
 builder.Services.AddTransient<NewsApiService>(provider =>
 {
     var factory = provider.GetRequiredService<IHttpClientFactory>();
     var logger = provider.GetRequiredService<ILogger<NewsApiService>>();
     var apiSettings = provider.GetRequiredService<IOptions<ApiSettings>>().Value;
     var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
-    return new NewsApiService(factory, apiKeys.NewsApiKey, apiSettings.NewsApiBaseUrl, logger);
+    return new NewsApiService(factory, apiKeys.NewsApiKey, apiSettings.NewsApiBaseUrl, apiSettings.NewsApiEverythingBaseUrl, logger);
 });
 
 builder.Services.AddTransient<ArticleBodyService>(provider =>
