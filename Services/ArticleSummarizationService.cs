@@ -10,12 +10,12 @@ using AI.News.Agent.Models;
 
 namespace AI.News.Agent.Services
 {
-    public class AIAnalysisService : IAIAnalysisService
+    public class ArticleSummarizationService : IArticleSummarizationService
     {
         private readonly HttpClient _httpClient;
         private readonly string _huggingFaceApiKey;
-        private readonly ILogger<AIAnalysisService> _logger;
-        private readonly string _primaryModelUrl;
+        private readonly ILogger<ArticleSummarizationService> _logger;
+        private readonly string _modelUrl;
 
         // Constants for controlling chunking and token estimation
         private const int MaxTokensPerChunk = 900; // Set to 900 to stay 10–15% below HF limit due to token size estimation variance
@@ -30,11 +30,11 @@ namespace AI.News.Agent.Services
         private const double FinalSummaryMinLengthPercentage = 0.8;
 
         // Using DI to inject IHttpClientFactory and API key for HTTP setup
-        public AIAnalysisService(
+        public ArticleSummarizationService(
             IHttpClientFactory httpClientFactory,
             string huggingFaceApiKey,
-            ILogger<AIAnalysisService> logger,
-            string primaryModelUrl)
+            ILogger<ArticleSummarizationService> logger,
+            string modelUrl)
         {
             _huggingFaceApiKey = huggingFaceApiKey ?? throw new ArgumentNullException(nameof(huggingFaceApiKey));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -42,7 +42,7 @@ namespace AI.News.Agent.Services
             _httpClient.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _huggingFaceApiKey);
 
-            _primaryModelUrl = primaryModelUrl ?? throw new ArgumentNullException(nameof(primaryModelUrl));
+            _modelUrl = modelUrl ?? throw new ArgumentNullException(nameof(modelUrl));
         }
 
         public async Task<Result<Summary>> SummarizeArticleAsync(string articleText)
@@ -243,7 +243,7 @@ namespace AI.News.Agent.Services
                         attempt, 
                         _httpClient.Timeout.TotalSeconds);
 
-                    var response = await _httpClient.PostAsync(_primaryModelUrl, content);
+                    var response = await _httpClient.PostAsync(_modelUrl, content);
                     var responseBody = await response.Content.ReadAsStringAsync();
 
                     if (response.IsSuccessStatusCode)

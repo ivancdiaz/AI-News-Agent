@@ -16,6 +16,7 @@ namespace AI.News.Agent.Services
         private readonly HttpClient _client;
         private readonly string _apiKey;
         private readonly string _baseUrl;
+        private readonly string _everythingBaseUrl;
         private readonly ILogger<NewsApiService> _logger;
 
         // Inject HttpClient and ILogger via DI, apply headers
@@ -23,11 +24,13 @@ namespace AI.News.Agent.Services
             IHttpClientFactory httpClientFactory,
             string apiKey,
             string baseUrl,
+            string everythingBaseUrl,
             ILogger<NewsApiService> logger)
         {
             _client = httpClientFactory.CreateClient("MyHttpClient");
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey), "API key cannot be null.");
             _baseUrl = baseUrl ?? throw new ArgumentNullException(nameof(baseUrl));
+            _everythingBaseUrl = everythingBaseUrl ?? throw new ArgumentNullException(nameof(everythingBaseUrl));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             // Apply centralized headers
@@ -94,6 +97,65 @@ namespace AI.News.Agent.Services
                 _logger.LogError(
                     ex, 
                     "Unexpected error occurred while fetching news from {Url}", 
+                    url);
+
+                return Result<List<Articles>>.Fail($"Unexpected error: {ex.Message}");
+            }
+        }
+
+        public async Task<Result<List<Articles>>> SearchArticlesAsync(ArticleSearchQuery query)
+        {
+            if (query == null || string.IsNullOrWhiteSpace(query.Query))
+            {
+                return Result<List<Articles>>.Fail("Search query text cannot be null or empty.");
+            }
+
+            var fromDate = query.From.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            var url = $"{_everythingBaseUrl}?q={Uri.EscapeDataString(query.Query)}" +
+                      $"&language={query.Language}" +
+                      $"&sortBy={query.SortBy}" +
+                      $"&pageSize={query.PageSize}" +
+                      $"&from={fromDate}";
+
+            _logger.LogInformation(
+                "Searching articles from {Url}",
+                url);
+
+            try
+            {
+                var response = await _client.GetAsync(url);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "Search request failed with status code {StatusCode} when accessing {Url}",
+                        response.StatusCode,
+                        url);
+
+                    return Result<List<Articles>>.Fail($"Request failed: {response.StatusCode}");
+                }
+
+                var responseBody = await response.Content.ReadAsStringAsync();
+                _logger.LogDebug(
+                    "Successfully fetched search results JSON (Length: {Length} chars)",
+                    responseBody.Length);
+
+                return ParseArticlesFromJson(responseBody);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Failed to fetch search results from {Url}",
+                    url);
+
+                return Result<List<Articles>>.Fail($"Failed to fetch search results: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Unexpected error occurred while searching news from {Url}",
                     url);
 
                 return Result<List<Articles>>.Fail($"Unexpected error: {ex.Message}");

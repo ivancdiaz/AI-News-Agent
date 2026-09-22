@@ -26,12 +26,24 @@ builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
 // Config bindings
 builder.Services.Configure<ApiKeySettings>(builder.Configuration.GetSection("ApiKeys"));
 builder.Services.Configure<ApiSettings>(builder.Configuration.GetSection("ApiSettings"));
-builder.Services.Configure<AIModelSettings>(builder.Configuration.GetSection("AI:Models"));
+builder.Services.Configure<ArticleSummarizationSettings>(builder.Configuration.GetSection("AI:ArticleSummarization"));
+builder.Services.Configure<QueryParserSettings>(builder.Configuration.GetSection("AI:QueryParser"));
 
 // Register services
 builder.Services.AddHttpClient();
 
 builder.Services.AddSingleton<IPlaywrightRenderService, PlaywrightRenderService>();
+
+// Query parsing uses Qwen3-32B via Hugging Face Inference Providers.
+// MockQueryParserService remains in the codebase; to switch back, register it here instead.
+builder.Services.AddTransient<IQueryParserService>(provider =>
+{
+    var factory = provider.GetRequiredService<IHttpClientFactory>();
+    var logger = provider.GetRequiredService<ILogger<QueryParserService>>();
+    var queryParserSettings = provider.GetRequiredService<IOptions<QueryParserSettings>>().Value;
+    var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
+    return new QueryParserService(factory, apiKeys.HuggingFaceApiKey, logger, queryParserSettings);
+});
 
 builder.Services.AddTransient<NewsApiService>(provider =>
 {
@@ -39,7 +51,7 @@ builder.Services.AddTransient<NewsApiService>(provider =>
     var logger = provider.GetRequiredService<ILogger<NewsApiService>>();
     var apiSettings = provider.GetRequiredService<IOptions<ApiSettings>>().Value;
     var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
-    return new NewsApiService(factory, apiKeys.NewsApiKey, apiSettings.NewsApiBaseUrl, logger);
+    return new NewsApiService(factory, apiKeys.NewsApiKey, apiSettings.NewsApiBaseUrl, apiSettings.NewsApiEverythingBaseUrl, logger);
 });
 
 builder.Services.AddTransient<ArticleBodyService>(provider =>
@@ -50,13 +62,13 @@ builder.Services.AddTransient<ArticleBodyService>(provider =>
     return new ArticleBodyService(factory, renderer, logger);
 });
 
-builder.Services.AddTransient<IAIAnalysisService>(provider =>
+builder.Services.AddTransient<IArticleSummarizationService>(provider =>
 {
     var factory = provider.GetRequiredService<IHttpClientFactory>();
-    var logger = provider.GetRequiredService<ILogger<AIAnalysisService>>();
-    var modelSettings = provider.GetRequiredService<IOptions<AIModelSettings>>().Value;
+    var logger = provider.GetRequiredService<ILogger<ArticleSummarizationService>>();
+    var summarizationSettings = provider.GetRequiredService<IOptions<ArticleSummarizationSettings>>().Value;
     var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
-    return new AIAnalysisService(factory, apiKeys.HuggingFaceApiKey, logger, modelSettings.Primary);
+    return new ArticleSummarizationService(factory, apiKeys.HuggingFaceApiKey, logger, summarizationSettings.Model);
 });
 
 // Add controllers
