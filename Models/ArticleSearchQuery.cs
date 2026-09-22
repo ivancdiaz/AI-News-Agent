@@ -5,8 +5,8 @@ namespace AI.News.Agent.Models
     {
         public string Query { get; set; } = default!;
         public DateTime From { get; set; }
-        public string Language { get; set; } = "en";
-        public string SortBy { get; set; } = "relevancy";
-        public int PageSize { get; set; } = 5;
+        public string Language { get; set; } = default!;
+        public string SortBy { get; set; } = default!;
+        public int PageSize { get; set; }
     }
 }

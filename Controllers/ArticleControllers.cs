@@ -15,20 +15,20 @@ namespace AI.News.Agent.Controllers
     {
         private readonly NewsApiService _newsApiService;
         private readonly ArticleBodyService _articleBodyService;
-        private readonly IAIAnalysisService _aiAnalysisService;
+        private readonly IArticleSummarizationService _articleSummarizationService;
         private readonly IQueryParserService _queryParserService;
         private readonly ILogger<ArticlesController> _logger;
 
         public ArticlesController(
             NewsApiService newsApiService,
             ArticleBodyService articleBodyService,
-            IAIAnalysisService aiAnalysisService,
+            IArticleSummarizationService articleSummarizationService,
             IQueryParserService queryParserService,
             ILogger<ArticlesController> logger)
         {
             _newsApiService = newsApiService;
             _articleBodyService = articleBodyService;
-            _aiAnalysisService = aiAnalysisService;
+            _articleSummarizationService = articleSummarizationService;
             _queryParserService = queryParserService;
             _logger = logger;
         }
@@ -180,7 +180,7 @@ namespace AI.News.Agent.Controllers
                     detail: bodyResult.ErrorMessage!));
             }
 
-            var summaryResult = await _aiAnalysisService.SummarizeArticleAsync(bodyResult.Value!.Text);
+            var summaryResult = await _articleSummarizationService.SummarizeArticleAsync(bodyResult.Value!.Text);
             if (!summaryResult.Success)
             {
                 _logger.LogWarning(
