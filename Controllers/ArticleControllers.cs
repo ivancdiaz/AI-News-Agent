@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using AI.News.Agent.Services;
@@ -17,6 +18,7 @@ namespace AI.News.Agent.Controllers
         private readonly ArticleBodyService _articleBodyService;
         private readonly IArticleSummarizationService _articleSummarizationService;
         private readonly IQueryParserService _queryParserService;
+        private readonly IArticleRelevanceService _articleRelevanceService;
         private readonly ILogger<ArticlesController> _logger;
 
         public ArticlesController(
@@ -24,12 +26,14 @@ namespace AI.News.Agent.Controllers
             ArticleBodyService articleBodyService,
             IArticleSummarizationService articleSummarizationService,
             IQueryParserService queryParserService,
+            IArticleRelevanceService articleRelevanceService,
             ILogger<ArticlesController> logger)
         {
             _newsApiService = newsApiService;
             _articleBodyService = articleBodyService;
             _articleSummarizationService = articleSummarizationService;
             _queryParserService = queryParserService;
+            _articleRelevanceService = articleRelevanceService;
             _logger = logger;
         }
 
@@ -62,12 +66,13 @@ namespace AI.News.Agent.Controllers
         }
 
         /// <summary>
-        /// Parses a natural-language search query and returns matching articles from NewsAPI's /everything search.
+        /// Parses a natural-language search query and returns matching articles from NewsAPI's /everything search,
+        /// each paired with a relevance score when available.
         /// </summary>
         /// <param name="query">The natural-language search query describing the news being requested.</param>
-        /// <returns>A list of articles matching the parsed search query.</returns>
+        /// <returns>A list of articles matching the parsed search query, with relevance data when available.</returns>
         [HttpGet("search")]
-        [ProducesResponseType(typeof(List<Articles>), 200)]
+        [ProducesResponseType(typeof(List<ArticleSearchResult>), 200)]
         [ProducesResponseType(typeof(ProblemDetails), 400)]
         public async Task<IActionResult> SearchArticles([FromQuery] string query)
         {
@@ -107,7 +112,29 @@ namespace AI.News.Agent.Controllers
                     detail: searchResult.ErrorMessage!));
             }
 
-            return Ok(searchResult.Value);
+            var articles = searchResult.Value!;
+
+            // Relevance evaluation is an enhancement, not a requirement: a failure here is logged
+            // and degrades to unscored results rather than failing the request.
+            var relevanceResult = await _articleRelevanceService.EvaluateRelevanceAsync(query, articles);
+            if (!relevanceResult.Success)
+            {
+                _logger.LogWarning(
+                    "Relevance evaluation unavailable, returning unscored results: {Message}",
+                    relevanceResult.ErrorMessage);
+            }
+
+            var relevanceByIndex = relevanceResult.Success ? relevanceResult.Value! : null;
+
+            var results = articles
+                .Select((article, i) => new ArticleSearchResult
+                {
+                    Article = article,
+                    Relevance = relevanceByIndex?[i]
+                })
+                .ToList();
+
+            return Ok(results);
         }
 
         /// <summary>

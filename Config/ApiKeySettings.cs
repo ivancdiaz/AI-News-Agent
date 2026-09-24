@@ -4,5 +4,6 @@ namespace AI.News.Agent.Config
     {
         public string NewsApiKey { get; set; } = default!;
         public string HuggingFaceApiKey { get; set; } = default!;
+        public string OpenRouterApiKey { get; set; } = default!;
     }
 }
