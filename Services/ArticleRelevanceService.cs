@@ -9,10 +9,8 @@ using AI.News.Agent.Models;
 
 namespace AI.News.Agent.Services
 {
-    // Evaluates how relevant each NewsAPI result is to the user's original natural-language
-    // request, using TypeSafe Jev's Noul decision type via OpenRouter's Decisions API.
-    // This is an enhancement to search results, not a requirement: any failure returns
-    // Result.Fail rather than throwing, so callers can fall back to the unscored articles.
+    // Evaluates article relevance using TypeSafe Jev (Noul) via OpenRouter's Decisions API.
+    // Enhancement, not a requirement: any failure returns Result.Fail, never throws.
     public class ArticleRelevanceService : IArticleRelevanceService
     {
         // Same true/false wording verified manually against Jev before this integration was built.
@@ -54,8 +52,7 @@ namespace AI.News.Agent.Services
                 return Result<List<ArticleRelevance>>.Ok(new List<ArticleRelevance>());
             }
 
-            // Record ids are synthetic and index-based so answers map back to the right
-            // article by position, regardless of title/URL content.
+            // Synthetic index-based record ids map answers back to articles by position.
             var recordIds = Enumerable.Range(0, articles.Count).Select(i => $"article-{i}").ToArray();
 
             var payload = new
@@ -109,9 +106,8 @@ namespace AI.News.Agent.Services
                     return Result<List<ArticleRelevance>>.Fail("Relevance evaluation response contained no answers.");
                 }
 
-                // Missing individual answers become a null Score for that article rather than
-                // failing the whole batch - the request-level failure path above already
-                // covers the case where nothing came back at all.
+                // A missing answer just means a null Score for that article, not a failed batch -
+                // the request-level failure path above already covers a fully failed call.
                 var results = recordIds
                     .Select(id => new ArticleRelevance { Score = (double?)answers[QuestionId(id)]?["noul"] })
                     .ToList();

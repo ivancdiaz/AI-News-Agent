@@ -114,8 +114,7 @@ namespace AI.News.Agent.Controllers
 
             var articles = searchResult.Value!;
 
-            // Relevance evaluation is an enhancement, not a requirement: a failure here is logged
-            // and degrades to unscored results rather than failing the request.
+            // Relevance evaluation is optional: on failure, log and degrade to unscored results instead of failing.
             var relevanceResult = await _articleRelevanceService.EvaluateRelevanceAsync(query, articles);
             if (!relevanceResult.Success)
             {

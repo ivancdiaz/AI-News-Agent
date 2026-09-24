@@ -35,8 +35,7 @@ builder.Services.AddHttpClient();
 
 builder.Services.AddSingleton<IPlaywrightRenderService, PlaywrightRenderService>();
 
-// Query parsing uses Qwen3-32B via Hugging Face Inference Providers.
-// MockQueryParserService remains in the codebase; to switch back, register it here instead.
+// Real query parser (Qwen3-32B via HF Inference Providers); swap in MockQueryParserService here to revert.
 builder.Services.AddTransient<IQueryParserService>(provider =>
 {
     var factory = provider.GetRequiredService<IHttpClientFactory>();
@@ -46,8 +45,7 @@ builder.Services.AddTransient<IQueryParserService>(provider =>
     return new QueryParserService(factory, apiKeys.HuggingFaceApiKey, logger, queryParserSettings);
 });
 
-// Relevance evaluation uses TypeSafe Jev via OpenRouter's Decisions API.
-// It is an enhancement to search results, not a requirement - see ArticleRelevanceService.
+// Relevance evaluation (TypeSafe Jev via OpenRouter) - enhancement, not a requirement; see ArticleRelevanceService.
 builder.Services.AddTransient<IArticleRelevanceService>(provider =>
 {
     var factory = provider.GetRequiredService<IHttpClientFactory>();

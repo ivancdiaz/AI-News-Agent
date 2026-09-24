@@ -1,8 +1,6 @@
 namespace AI.News.Agent.Config
 {
-    // Settings for the query parser: endpoint, model id, and the defaults/limits it applies
-    // when validating model output. Kept separate from ArticleSummarizationSettings, which only configures BART.
-    // Defaults below apply unless overridden under "AI:QueryParser" in configuration.
+    // Query parser endpoint, model id, and the defaults/limits applied to model output.
     public class QueryParserSettings
     {
         public string Url { get; set; } = default!;

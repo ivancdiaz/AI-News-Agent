@@ -3,9 +3,7 @@ using AI.News.Agent.Models;
 
 namespace AI.News.Agent.Services
 {
-    // Placeholder for a future LLM-based query parser.
-    // Forwards the raw input as the NewsAPI 'q' term with fixed defaults for everything else -
-    // no keyword extraction, no branching. This proves the seam, not the intelligence.
+    // Placeholder query parser: passes input straight through with fixed defaults, no NLP - proves the seam, not the intelligence.
     public class MockQueryParserService : IQueryParserService
     {
         private readonly ILogger<MockQueryParserService> _logger;

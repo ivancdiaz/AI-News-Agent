@@ -1,8 +1,7 @@
 namespace AI.News.Agent.Config
 {
-    // External configuration for the Jev relevance evaluator (OpenRouter Decisions API endpoint + model id).
-    // The Noul question text and criteria are owned by ArticleRelevanceService itself, not config,
-    // matching how QueryParserService owns its own prompt.
+    // Endpoint + model id for the Jev relevance evaluator. Question text and criteria live in
+    // ArticleRelevanceService itself, not here - same split QueryParserService uses for its prompt.
     public class ArticleRelevanceSettings
     {
         public string Url { get; set; } = default!;
