@@ -28,14 +28,14 @@ builder.Services.Configure<ApiKeySettings>(builder.Configuration.GetSection("Api
 builder.Services.Configure<ApiSettings>(builder.Configuration.GetSection("ApiSettings"));
 builder.Services.Configure<ArticleSummarizationSettings>(builder.Configuration.GetSection("AI:ArticleSummarization"));
 builder.Services.Configure<QueryParserSettings>(builder.Configuration.GetSection("AI:QueryParser"));
+builder.Services.Configure<ArticleRelevanceSettings>(builder.Configuration.GetSection("AI:ArticleRelevance"));
 
 // Register services
 builder.Services.AddHttpClient();
 
 builder.Services.AddSingleton<IPlaywrightRenderService, PlaywrightRenderService>();
 
-// Query parsing uses Qwen3-32B via Hugging Face Inference Providers.
-// MockQueryParserService remains in the codebase; to switch back, register it here instead.
+// Real query parser (Qwen3-32B via HF Inference Providers); swap in MockQueryParserService here to revert.
 builder.Services.AddTransient<IQueryParserService>(provider =>
 {
     var factory = provider.GetRequiredService<IHttpClientFactory>();
@@ -43,6 +43,16 @@ builder.Services.AddTransient<IQueryParserService>(provider =>
     var queryParserSettings = provider.GetRequiredService<IOptions<QueryParserSettings>>().Value;
     var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
     return new QueryParserService(factory, apiKeys.HuggingFaceApiKey, logger, queryParserSettings);
+});
+
+// Relevance evaluation (TypeSafe Jev via OpenRouter) - enhancement, not a requirement; see ArticleRelevanceService.
+builder.Services.AddTransient<IArticleRelevanceService>(provider =>
+{
+    var factory = provider.GetRequiredService<IHttpClientFactory>();
+    var logger = provider.GetRequiredService<ILogger<ArticleRelevanceService>>();
+    var relevanceSettings = provider.GetRequiredService<IOptions<ArticleRelevanceSettings>>().Value;
+    var apiKeys = provider.GetRequiredService<IOptions<ApiKeySettings>>().Value;
+    return new ArticleRelevanceService(factory, apiKeys.OpenRouterApiKey, logger, relevanceSettings);
 });
 
 builder.Services.AddTransient<NewsApiService>(provider =>

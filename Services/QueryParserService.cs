@@ -10,9 +10,8 @@ using AI.News.Agent.Models;
 
 namespace AI.News.Agent.Services
 {
-    // Real IQueryParserService backed by Qwen3-32B through Hugging Face Inference Providers
-    // (OpenAI-compatible chat completions). Fail-fast: any request, parsing, or validation
-    // problem returns Result.Fail. It never falls back to MockQueryParserService.
+    // Real IQueryParserService using Qwen3-32B via Hugging Face Inference Providers.
+    // Fail-fast: never falls back to MockQueryParserService.
     public class QueryParserService : IQueryParserService
     {
         // Values NewsAPI /everything accepts. Anything else from the model is rejected.
@@ -149,9 +148,8 @@ namespace AI.News.Agent.Services
             }
         }
 
-        // Model output is untrusted: it ends up in the NewsAPI URL, so every field is checked here
-        // before an ArticleSearchQuery exists. Missing optional fields get defaults, unusable
-        // categorical values (language, sortBy, unreadable date) fail, and numeric/date ranges are clamped.
+        // Model output is untrusted (it ends up in the NewsAPI URL), so every field is validated here:
+        // unknown language/sortBy/date fail, missing optional fields get defaults, ranges are clamped.
         private Result<ArticleSearchQuery> ValidateAndMap(QueryParserResponse parsed, DateTime today)
         {
             var q = parsed.Q?.Trim();
