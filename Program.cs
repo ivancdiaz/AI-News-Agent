@@ -29,6 +29,7 @@ builder.Services.Configure<ApiSettings>(builder.Configuration.GetSection("ApiSet
 builder.Services.Configure<ArticleSummarizationSettings>(builder.Configuration.GetSection("AI:ArticleSummarization"));
 builder.Services.Configure<QueryParserSettings>(builder.Configuration.GetSection("AI:QueryParser"));
 builder.Services.Configure<ArticleRelevanceSettings>(builder.Configuration.GetSection("AI:ArticleRelevance"));
+builder.Services.Configure<ArticleSearchSettings>(builder.Configuration.GetSection("AI:ArticleSearch"));
 
 // Register services
 builder.Services.AddHttpClient();

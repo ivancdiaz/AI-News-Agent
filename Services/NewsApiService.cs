@@ -103,7 +103,8 @@ namespace AI.News.Agent.Services
             }
         }
 
-        public async Task<Result<List<Articles>>> SearchArticlesAsync(ArticleSearchQuery query)
+        // pageSize is application-controlled (the candidate pool for relevance evaluation), not read from query
+        public async Task<Result<List<Articles>>> SearchArticlesAsync(ArticleSearchQuery query, int pageSize)
         {
             if (query == null || string.IsNullOrWhiteSpace(query.Query))
             {
@@ -114,7 +115,7 @@ namespace AI.News.Agent.Services
             var url = $"{_everythingBaseUrl}?q={Uri.EscapeDataString(query.Query)}" +
                       $"&language={query.Language}" +
                       $"&sortBy={query.SortBy}" +
-                      $"&pageSize={query.PageSize}" +
+                      $"&pageSize={pageSize}" +
                       $"&from={fromDate}";
 
             _logger.LogInformation(

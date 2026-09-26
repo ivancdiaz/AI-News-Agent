@@ -216,20 +216,17 @@ namespace AI.News.Agent.Services
                      : parsedFrom.Date;
             }
 
-            var pageSize = Math.Clamp(parsed.PageSize ?? _settings.DefaultPageSize, 1, _settings.MaxPageSize);
-
             var query = new ArticleSearchQuery
             {
                 Query = q,
                 From = from,
                 Language = language,
-                SortBy = sortBy,
-                PageSize = pageSize
+                SortBy = sortBy
             };
 
             _logger.LogInformation(
-                "Query parser mapped input to ArticleSearchQuery (Query: {Query}, From: {From}, Language: {Language}, SortBy: {SortBy}, PageSize: {PageSize})",
-                query.Query, query.From, query.Language, query.SortBy, query.PageSize);
+                "Query parser mapped input to ArticleSearchQuery (Query: {Query}, From: {From}, Language: {Language}, SortBy: {SortBy})",
+                query.Query, query.From, query.Language, query.SortBy);
 
             return Result<ArticleSearchQuery>.Ok(query);
         }
@@ -267,7 +264,6 @@ namespace AI.News.Agent.Services
                 "- \"language\" (string, optional): a two-letter code from: ar, de, en, es, fr, he, it, nl, no, pt, ru, sv, ud, zh. Omit it unless the user asks for a language.",
                 "- \"sortBy\" (string, optional): one of \"relevancy\", \"popularity\", \"publishedAt\". Omit it unless the user implies an ordering.",
                 $"- \"from\" (string, optional): earliest publication date as YYYY-MM-DD, never earlier than {earliestText}. Use it to resolve phrases like \"recent\" (last {_settings.DefaultLookbackDays} days), \"today\" or \"last week\". Omit it if the user gives no time frame.",
-                $"- \"pageSize\" (integer, optional): number of articles, 1 to {_settings.MaxPageSize}. Omit it unless the user asks for a specific number.",
                 $"Example: {{\"q\":\"solar panel tariffs\",\"sortBy\":\"publishedAt\",\"from\":\"{exampleFromText}\"}}"
             });
         }
@@ -279,7 +275,6 @@ namespace AI.News.Agent.Services
             [JsonProperty("language")] public string? Language { get; set; }
             [JsonProperty("sortBy")] public string? SortBy { get; set; }
             [JsonProperty("from")] public string? From { get; set; }
-            [JsonProperty("pageSize")] public int? PageSize { get; set; }
         }
     }
 }

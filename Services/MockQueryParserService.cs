@@ -26,13 +26,12 @@ namespace AI.News.Agent.Services
                 Query = userQuery.Trim(),
                 From = DateTime.UtcNow.AddDays(-7),
                 Language = "en",
-                SortBy = "relevancy",
-                PageSize = 5
+                SortBy = "relevancy"
             };
 
             _logger.LogInformation(
-                "Mock query parser mapped input to ArticleSearchQuery (Query: {Query}, From: {From}, Language: {Language}, SortBy: {SortBy}, PageSize: {PageSize})",
-                query.Query, query.From, query.Language, query.SortBy, query.PageSize);
+                "Mock query parser mapped input to ArticleSearchQuery (Query: {Query}, From: {From}, Language: {Language}, SortBy: {SortBy})",
+                query.Query, query.From, query.Language, query.SortBy);
 
             return Task.FromResult(Result<ArticleSearchQuery>.Ok(query));
         }

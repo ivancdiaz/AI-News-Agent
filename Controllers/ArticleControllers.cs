@@ -1,6 +1,8 @@
 using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using AI.News.Agent.Config;
 using AI.News.Agent.Services;
 using AI.News.Agent.Models;
 
@@ -19,6 +21,7 @@ namespace AI.News.Agent.Controllers
         private readonly IArticleSummarizationService _articleSummarizationService;
         private readonly IQueryParserService _queryParserService;
         private readonly IArticleRelevanceService _articleRelevanceService;
+        private readonly ArticleSearchSettings _articleSearchSettings;
         private readonly ILogger<ArticlesController> _logger;
 
         public ArticlesController(
@@ -27,6 +30,7 @@ namespace AI.News.Agent.Controllers
             IArticleSummarizationService articleSummarizationService,
             IQueryParserService queryParserService,
             IArticleRelevanceService articleRelevanceService,
+            IOptions<ArticleSearchSettings> articleSearchSettings,
             ILogger<ArticlesController> logger)
         {
             _newsApiService = newsApiService;
@@ -34,6 +38,7 @@ namespace AI.News.Agent.Controllers
             _articleSummarizationService = articleSummarizationService;
             _queryParserService = queryParserService;
             _articleRelevanceService = articleRelevanceService;
+            _articleSearchSettings = articleSearchSettings.Value;
             _logger = logger;
         }
 
@@ -99,7 +104,7 @@ namespace AI.News.Agent.Controllers
                     detail: queryResult.ErrorMessage!));
             }
 
-            var searchResult = await _newsApiService.SearchArticlesAsync(queryResult.Value!);
+            var searchResult = await _newsApiService.SearchArticlesAsync(queryResult.Value!, _articleSearchSettings.CandidatePoolSize);
             if (!searchResult.Success)
             {
                 _logger.LogWarning(
@@ -125,13 +130,20 @@ namespace AI.News.Agent.Controllers
 
             var relevanceByIndex = relevanceResult.Success ? relevanceResult.Value! : null;
 
-            var results = articles
-                .Select((article, i) => new ArticleSearchResult
-                {
-                    Article = article,
-                    Relevance = relevanceByIndex?[i]
-                })
-                .ToList();
+            var pairedResults = articles.Select((article, i) => new ArticleSearchResult
+            {
+                Article = article,
+                Relevance = relevanceByIndex?[i]
+            });
+
+            // Only filter/sort by score when Jev actually ran. A failed evaluation keeps the
+            // graceful-degradation behavior: the full, unfiltered candidate list, unscored.
+            var results = relevanceResult.Success
+                ? pairedResults
+                    .Where(r => r.Relevance?.Score >= _articleSearchSettings.MinRelevanceScore)
+                    .OrderByDescending(r => r.Relevance!.Score)
+                    .ToList()
+                : pairedResults.ToList();
 
             return Ok(results);
         }
