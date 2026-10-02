@@ -1,6 +1,6 @@
 namespace AI.News.Agent.Models
 {
-    // Article + whatever relevance data exists. Not "Ranked" - no ranking/filtering policy exists yet.
+    // Article with optional relevance data from semantic evaluation.
     public class ArticleSearchResult
     {
         public Articles Article { get; set; } = default!;
