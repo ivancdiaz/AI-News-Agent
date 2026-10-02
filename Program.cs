@@ -90,11 +90,11 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
     // Set versioning and metadata for the API UI
-    options.SwaggerDoc("v1.2", new OpenApiInfo
+    options.SwaggerDoc("v1.3", new OpenApiInfo
     {
-        Version = "v1.2",
+        Version = "v1.3",
         Title = "AI.News.Agent API",
-        Description = "API for fetching and extracting news articles, with AI-powered summarization"
+        Description = "API for natural-language news search, semantic relevance evaluation, article extraction, and AI-powered summarization."
     });
     // Add XML comments for Swagger UI
     var xmlFilename = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
@@ -110,7 +110,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c =>
     {
         // Set the versioned JSON endpoint
-        c.SwaggerEndpoint("/swagger/v1.2/swagger.json", "AI.News.Agent API v1.2");
+        c.SwaggerEndpoint("/swagger/v1.3/swagger.json", "AI.News.Agent API v1.3");
     });
 }
 

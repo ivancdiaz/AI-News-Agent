@@ -1,149 +1,244 @@
 # AI News Agent
 
-C# Web API for news aggregation that fetches real-time headline URLs from NewsAPI, extracts full article story content from selected URLs, and summarizes it with AI.
+A C# ASP.NET Core Web API for AI-powered news search, semantic relevance evaluation, article extraction, and summarization.
 
-> **Version:** `v1.2-api-release`  
-> **Note:** This version introduces a full Web API implementation, building on the CLI version and transitioning to a controller based architecture with Swagger UI, enhanced AI summarization with recursive fallback, structured logging, and centralized Result<T> error handling, now exposed via ProblemDetails.
+The application integrates multiple AI models with distinct responsibilities: **Qwen3-32B** interprets natural-language news requests, **TypeSafe Jev** evaluates retrieved articles for semantic relevance, and **BART** (`facebook/bart-large-cnn`) summarizes article content through a custom token-aware pipeline designed around the model's input and output constraints.
+
+Application code remains in control of search execution, relevance thresholds, filtering, ranking, fallback behavior, and API responses.
+
+> **Version:** `v1.3-ai-search`
+>
+> **Note:** This version introduces natural-language news search with Qwen3-32B and semantic relevance evaluation with Jev, adding application-controlled relevance filtering and ranking while preserving the existing article extraction and BART summarization workflows.
 
 ---
 
 ## Features
- 
-- **`NewsApiService`** - Fetches top headlines from NewsAPI, returning metadata such as title, author, source, published date, and URL.
 
-- **`ArticleBodyService`** – Uses `HttpClient` to fetch article HTML and extract the main text using `HtmlAgilityPack`. 
-  - Prioritizes semantic tags like `<article>`
-  - Falls back to the `<div>` with the most paragraph content when semantic tags are not present.
+### Natural-Language Query Interpretation (Qwen3-32B)
 
-- **`PlaywrightRenderService`** – Final fallback when `HttpClient` fails to retrieve HTML.
-  - Uses a headless browser to fully render the webpage including JavaScript-heavy pages.
-  - Passes rendered HTML back to `ArticleBodyService` for parsing.
+Uses **Qwen3-32B** to translate a user's natural-language request, such as `"Show me recent news about Xbox games, not hardware or accessories"`, into structured parameters that can be executed against NewsAPI.
 
-- **`AIAnalysisService`** – AI based article summarization using Hugging Face's BART model (`facebook/bart-large-cnn`)
-  - Estimates token length of the article and determines if chunking is required to fit within the BART model's token limit.
-  - Long articles are split into smaller chunks, each summarized individually, then merged and summarized again for the final summary.
-  - Applies dynamic token budgeting to scale each chunk summary, ensuring the merged result stays within the final summary token limit.
-  - Short articles skip chunking entirely and use a reduced token budget to prevent AI overgeneration in the final summary.
-  - Very large articles enforce a 150 token minimum per chunk summary. If the merged result exceeds the final summary token limit, a recursive fallback system re-chunks and compresses it until it is within budget.
-  
-- **`HttpHeadersConfig`** – Centralized HTTP headers to ensure consistent requests across services.
+- Extracts search intent into parameters such as keywords, date range, language, and sort order.
+- Keeps execution of the generated parameters under application control rather than allowing the model to directly perform the search.
+- Implemented through `QueryParserService`, with model behavior and settings handled through configuration.
 
-- **`Interfaces`** – Improves modularity with dependency injection to support clean architecture and enable easier testing.
+### Semantic Article Relevance Evaluation (TypeSafe Jev)
 
-- **`Swagger UI`** – Interactive documentation with versioned OpenAPI schema (`v1.2`), XML comment descriptions, and proper `ProblemDetails` for failed requests.
+Uses **TypeSafe Jev 1.13** to evaluate retrieved articles against the user's original natural-language request before results are returned. Jev's decision-oriented model is well suited for **fast result evaluation** because it returns structured relevance scores rather than generating free-form text responses.
+
+- Evaluates retrieved articles in a single batched relevance request through the OpenRouter Decisions API.
+- Applies an application-controlled relevance threshold, currently configured at `0.50`.
+- Filters articles that do not meet the threshold and returns qualifying results in descending relevance order.
+- If Jev evaluation is unavailable, the workflow gracefully falls back to the retrieved NewsAPI results without relevance scores rather than failing the entire search.
+
+### News Search and Retrieval (NewsAPI)
+
+Uses `NewsApiService` to execute searches using the structured parameters produced from the user's request. The application controls the number of retrieved articles, currently up to 20, before semantic relevance evaluation.
+
+### Article Content Extraction
+
+Uses `ArticleBodyService`, `HttpClient`, and `HtmlAgilityPack` to retrieve and extract usable article content from news URLs.
+
+- Prioritizes semantic article content and known content containers.
+- Falls back to the `<div>` containing the most paragraph content when a clear article container cannot be identified.
+
+### JavaScript Rendering Fallback (Playwright)
+
+Uses `PlaywrightRenderService` to render JavaScript-dependent pages when normal HTTP retrieval does not provide usable article content, then passes the rendered HTML back through the extraction process.
+
+### Token-Aware Article Summarization (BART)
+
+Uses **BART** (`facebook/bart-large-cnn`) to summarize extracted article content while explicitly accounting for the model's input and output constraints.
+
+- Determines when an article exceeds BART's token limit and requires chunking.
+- Breaks larger articles into smaller chunks, summarizes each individually, and combines the results for final summarization.
+- Recursively re-chunks and compresses combined summaries when they still exceed the final summary token limit.
+- Very short articles return cleaned text directly, avoiding an unnecessary model call.
+
+### API Documentation and Error Handling
+
+- Provides interactive **Swagger / OpenAPI** documentation with XML endpoint descriptions.
+- Uses centralized `Result<T>` handling, standardized `ProblemDetails` responses, and structured logging for application errors and workflow failures.
 
 ---
 
 ## Technologies Used
 
-- **ASP.NET Core Web API** – Backend framework for HTTP routing, DI, and middleware
-- **NewsAPI** – Real time news headline data provider
-- **Hugging Face Transformers (BART)** – AI summarization model (`facebook/bart-large-cnn`)
-- **HtmlAgilityPack** – For parsing and extracting HTML content
-- **Microsoft Playwright** – Headless browser fallback for HTML extraction on JavaScript heavy pages
-- **Swagger / Swashbuckle** – Interactive API documentation and testing
-- **Microsoft.Extensions.Logging** –  Structured logging using dependency injection
-- **System.Net.Http + Custom Headers** – Outbound HTTP requests with configurable headers
-- **IOptions<T> Configuration Binding** – Strongly typed config settings for API keys and services
-- **Result<T> & ProblemDetails** – Centralized success/error result modeling and standardized API error responses
+- **ASP.NET Core Web API** - Backend framework for HTTP routing, dependency injection, and middleware.
+- **Qwen3-32B** - Large language model used to interpret natural-language news requests and produce structured search parameters.
+- **TypeSafe Jev 1.13** - Semantic relevance model used to evaluate how closely retrieved articles match the user's original request.
+- **BART (`facebook/bart-large-cnn`)** - Text summarization model used by the article summarization pipeline.
+- **Hugging Face Inference API** - Provides model inference for Qwen3-32B and BART.
+- **OpenRouter Decisions API** - Provides batched Jev relevance evaluation.
+- **NewsAPI** - Provides news headline and article search data.
+- **HtmlAgilityPack** - Parses retrieved HTML and extracts article content.
+- **Microsoft Playwright** - Headless browser fallback for HTML extraction on JavaScript-heavy pages.
+- **Swagger / OpenAPI** - Interactive API documentation and endpoint testing.
+
+---
+
+## Architecture
+
+The application separates AI model responsibilities from deterministic application behavior across two independent workflows: natural-language news search and article summarization.
+
+### Natural-Language News Search
+
+```mermaid
+flowchart LR
+    A[Natural-language request] --> B[Qwen3-32B]
+    B --> C[Structured search parameters]
+    C --> D[NewsAPI]
+    D --> E[Retrieved articles]
+    E --> F[TypeSafe Jev]
+    A -. Original user intent .-> F
+    F --> G[Relevance scores]
+    G --> H[Application filtering + ranking]
+    H --> I[Relevant articles]
+```
+
+Qwen and Jev provide model-driven interpretation and relevance evaluation, while search execution, result limits, relevance thresholds, filtering, ranking, and fallback behavior remain controlled by the application.
+
+If no retrieved articles meet the configured relevance threshold, the API returns an empty result set. If Jev evaluation is unavailable or fails at the request level, the application gracefully falls back to the retrieved NewsAPI articles without relevance scores.
+
+### Article Extraction and Summarization
+
+Article summarization operates independently from natural-language news search. An article URL is retrieved, its content is extracted, and the resulting text is passed through the BART summarization pipeline.
+
+```mermaid
+flowchart LR
+    A[Article URL] --> B[Retrieve + extract content]
+    B --> C{Very short article?}
+    C -->|Yes| D[Return cleaned text]
+    C -->|No| E{Fits BART token limit?}
+    E -->|Yes| F[Direct BART summary]
+    E -->|No| G[Split into chunks]
+    G --> H[Calculate summary budget]
+    H --> I[Summarize each chunk]
+    I --> J[Merge summaries]
+    J --> K{Minimum budget enforced?}
+    K -->|No| L[Final BART summary]
+    K -->|Yes| M{Within final input limit?}
+    M -->|No| N[Re-chunk + compress]
+    N --> M
+    M -->|Yes| L
+    D --> O[Result]
+    F --> O
+    L --> O
+```
+
+Article retrieval first uses `HttpClient` and `HtmlAgilityPack`. When normal retrieval cannot provide usable content, Playwright provides a JavaScript-rendering fallback before the extracted content enters the summarization pipeline.
+
+> **Summarization design:** The BART pipeline intentionally demonstrates handling a model with constrained input and output limits through token-aware chunking, dynamic summary budgets, and recursive re-chunking. The current implementation prioritizes demonstrating these techniques rather than minimizing summarization time by using a modern long-context model.
+>
+> Detailed test evidence for chunking, Playwright fallback, and recursive re-chunking is documented in [`docs/manual-testing.md`](docs/manual-testing.md).
+
+---
+
+## API Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/Articles/top-headlines` | Retrieves top headlines for a given `country` and `pageSize`. |
+| `GET /api/Articles/search` | Interprets a natural-language `query` with Qwen, retrieves candidate articles from NewsAPI, evaluates relevance with Jev, and returns qualifying results ranked by relevance. |
+| `GET /api/Articles/body` | Extracts and returns article content from a supplied `url`. |
+| `GET /api/Articles/summarize` | Runs the complete article summarization workflow for a supplied `url`, including content extraction and BART summarization. |
+
+---
+
+## Example Results
+
+### Natural-Language Search with Qwen + Jev
+
+A natural-language request is interpreted by Qwen and converted into structured NewsAPI search parameters. Jev then evaluates the retrieved articles against the original request, allowing the API to filter unrelated results and return qualifying articles in descending relevance order.
+
+**Example request:**
+
+`Find recent news articles about artificial intelligence products, not AI company funding or stock prices`
+
+<img width="1431" height="1192" alt="Qwen and Jev natural-language news search with relevance-ranked results" src="https://github.com/user-attachments/assets/0349d371-fd59-4885-8345-b312f637a6d4" />
+
+### BART Article Summarization
+
+Article content can be extracted and summarized through the separate BART pipeline. Longer articles are automatically processed through the token-aware chunking and compression workflow before the final summary is generated.
+
+<img width="1428" height="844" alt="BART article summarization result" src="https://github.com/user-attachments/assets/2432df8c-be1f-4010-a543-8e3bb9b125d3" />
+
+### Swagger API
+
+The application exposes its search, extraction, and summarization capabilities through an ASP.NET Core Web API with interactive Swagger documentation.
+
+<img width="1439" height="436" alt="Swagger API endpoint overview" src="https://github.com/user-attachments/assets/a22795e1-3e63-4ff9-8f62-290502280935" />
+
+For detailed validation scenarios, fallback behavior, logs, and additional screenshots, see [docs/manual-testing.md](docs/manual-testing.md).
 
 ---
 
 ## Setup
 
-### 1. API Keys
+### 1. Local Configuration
 
-- **NewsAPI Key** – Required to fetch news headlines. [Get your NewsAPI key here](https://newsapi.org/)
-- **Hugging Face API Key** – Required for AI Article summarization. [Get your Hugging Face API key here](https://huggingface.co/)
+Copy the development configuration template to create your local `appsettings.json`:
+
+```bash
+cp appsettings.Development.template.json appsettings.json
+```
+
+Add the required API keys to `appsettings.json`:
+
+- **NewsAPI Key** - Required for top headlines and article search. [NewsAPI](https://newsapi.org/)
+- **Hugging Face API Key** - Required for Qwen query interpretation and BART summarization. [Hugging Face](https://huggingface.co/)
+- **OpenRouter API Key** - Required for Jev relevance evaluation. [OpenRouter](https://openrouter.ai/)
+
+Model configuration, the maximum number of articles retrieved for relevance evaluation, and the minimum relevance threshold can also be configured under the `AI` section of `appsettings.json`.
 
 ### 2. Install Playwright
 
-- **Playwright CLI** – Needed to render full web pages when HttpClient extraction fails.
-
-- Install Microsoft Playwright CLI and browsers:
+Install the Microsoft Playwright CLI and browser dependencies:
 
 ```bash
 dotnet tool install --global Microsoft.Playwright.CLI
 playwright install
 ```
 
+Playwright is used as a fallback when article content cannot be retrieved successfully through the normal HTTP extraction path.
+
+---
+
 ## Running the Web API
 
-### Launch the API
+Launch the API:
 
 ```bash
 dotnet run
 ```
 
-### Using Swagger to access API endpoints
+Once the application is running, open Swagger:
 
-- Once the API is running, navigate to:
-
-```bash
+```text
 https://localhost:7044/swagger/index.html
 ```
 
-- With Swagger you can:
-  - Call any endpoint (`/api/Articles/top-headlines`, `/body`, `/summarize`)
-  - View detailed endpoint descriptions, parameters, and response schemas
-  - Submit a news article URL to extract the full article body or receive an AI-generated summary
-  - See example inputs and error responses using `ProblemDetails`
-![image](https://github.com/user-attachments/assets/513a7018-af0e-4357-9f8b-bcd34fc81846)
+Swagger can be used to:
+
+- Submit natural-language news searches through `/api/Articles/search`
+- Retrieve top headlines through `/api/Articles/top-headlines`
+- Extract article content through `/api/Articles/body`
+- Generate article summaries through `/api/Articles/summarize`
+- Inspect request parameters, response schemas, and `ProblemDetails` error responses
 
 ---
 
-## **API Testing**
-See [docs/manual-testing.md](docs/manual-testing.md) for more detailed test scenarios, including chunked vs. short article handling, HTML fallbacks, and Playwright usage.
+## Testing
 
-### **Manual Test 1: Top Headlines Retrieval**
-1. Once inside Swagger, select the dropdown for `GET /api/Articles/top-headlines`
-2. Use the default params or customize `country` and `pageSize`.
-3. The API will return a list of the latest top headlines in proper JSON format with a 200 OK status.
+Manual validation covers the primary search, extraction, fallback, and summarization workflows, including:
 
-### **Manual Test 2: Article Body Fetching** 
-1. Inside Swagger enter a headline or news URL under `GET /api/articles/body`
-2. The API fetches and parses the raw HTML to extract the article’s main content, using fallback strategies when needed.
-3. The extracted body is returned in a JSON response with a 200 OK status. 
-4. Invalid URL requests return a 400 Bad Request with a structured ProblemDetails error.
+- NewsAPI headline and search retrieval
+- Natural-language query interpretation with Qwen
+- Jev relevance evaluation, filtering, and ranking
+- Jev graceful degradation behavior
+- Article extraction and HTML fallback behavior
+- Playwright rendering fallback
+- Short and chunked BART summarization
+- Recursive re-chunking for large articles
 
-### **Manual Test 3: AI-Powered Article Summarization**
-1. Inside Swagger enter a headline or news URL under `GET /api/articles/summarize`
-2. The API extracts the article body, splits it into chunks if needed, and summarizes each chunk using AI.
-3. All chunk summaries are then merged and re-summarized to generate a final, compressed summary.
-4. The API returns a complete AI-generated summary with a 200 OK status and valid JSON format.
-
-
-> **Note:** Automated unit and integration tests are planned for a future update to complement the current manual testing procedures.
-
----
-
-## **Screenshots**
-**Test 1 Results: Top Headlines Retrieval**
-  - Executed `GET /api/Articles/top-headlines` with default params (`country=us`, `pageSize=5`).
-  - Received 200 OK with list of top headlines in correct JSON format.
-![image](https://github.com/user-attachments/assets/d2dae5f7-d612-4637-a5ad-9ff8513575b0)
-
----
-
-**Test 2 Results: Article Body Fetching** 
-  - Successfully fetched the full article body from a valid URL and returned a 200 OK response.
-![image](https://github.com/user-attachments/assets/d994a868-9873-4869-bbbc-0ffe625a914d)
-
-  - Negative test with an invalid URL returned a 400 Bad Request response with a structured ProblemDetails JSON body, confirming proper error handling.
-![image](https://github.com/user-attachments/assets/40ffa355-217e-4cc7-9689-fe84f3fd640e)
-
----
-
-**Test 3 Results: AI-Powered Article Summarization** 
-  - The API successfully extracted the article body, split it into multiple chunks, and generated individual AI summaries for each chunk.
-![image](https://github.com/user-attachments/assets/8c63f345-54b8-4f73-9dac-0f504b483ab0)
-
-  - The chunk summaries were then merged and re-summarized to produce the final AI-generated summary.
-![image](https://github.com/user-attachments/assets/1969f537-523b-4f5b-bfbe-3879f9d91321)
-
-  - The API returned a 200 OK with the final summary in valid JSON format.
-![image](https://github.com/user-attachments/assets/18195feb-fcbb-4233-8c48-ccb6f36b1af6)
-
-
-
-
+See [docs/manual-testing.md](docs/manual-testing.md) for detailed test scenarios, expected behavior, logs, and screenshots.
